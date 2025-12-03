@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
@@ -6,12 +7,14 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Rules from './pages/Rules';
 import WMS from './pages/WMS';
-import BI from './pages/BI'; // New import
+import BI from './pages/BI'; 
 import Exceptions from './pages/Exceptions';
 import Users from './pages/Users';
 import LocationManager from './pages/LocationManager'; 
-import { UserRole, LocationRule, LogEntry, DestContainerMap, ExceptionEntry, Accounts } from './types';
+import CloudSyncModal from './components/CloudSyncModal';
+import { UserRole, LocationRule, LogEntry, DestContainerMap, ExceptionEntry, Accounts, CloudConfig, FullBackup } from './types';
 import { generateDefaultRules, buildDefaultRule } from './services/dataService';
+import { uploadData, downloadData } from './services/cloudService';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { X, Search as SearchIcon, Inbox } from 'lucide-react';
 import { NotificationProvider, useNotifications } from './components/Notifications';
@@ -21,6 +24,8 @@ const LOG_KEY = "la_location_logs_v14";
 const EXCEPTIONS_KEY = "la_exceptions_v14";
 const DEST_CONTAINER_KEY = "la_dest_container_map_v14";
 const ACCOUNTS_KEY = "la_accounts_v14";
+const CLOUD_CONFIG_KEY = "la_cloud_config_v14";
+const LAST_SYNC_KEY = "la_last_sync_time_v14";
 
 const DEFAULT_ACCOUNTS: Accounts = {
   Mike: { password: "lk2025", role: "Mike" as UserRole },
@@ -166,7 +171,11 @@ const AppContent: React.FC = () => {
   const [exceptions, setExceptions] = useState<ExceptionEntry[]>([]);
   const [destContainerMap, setDestContainerMap] = useState<DestContainerMap>({});
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
   const [accounts, setAccounts] = useState<Accounts>(DEFAULT_ACCOUNTS);
+  const [cloudConfig, setCloudConfig] = useState<CloudConfig>({ url: '', apiKey: '' });
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
+  
   const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
@@ -224,6 +233,12 @@ const AppContent: React.FC = () => {
             }
         } catch(e) {}
     }
+    
+    const savedCloudConfig = localStorage.getItem(CLOUD_CONFIG_KEY);
+    if (savedCloudConfig) try { setCloudConfig(JSON.parse(savedCloudConfig)); } catch (e) {}
+    
+    const savedSyncTime = localStorage.getItem(LAST_SYNC_KEY);
+    if (savedSyncTime) setLastSyncTime(savedSyncTime);
 
   }, []);
 
@@ -397,6 +412,44 @@ const handleDeleteLocation = (locationCode: string) => {
     addNotification(t('locationDeleted', { locationCode }), 'success');
 };
 
+const handleSaveCloudConfig = (config: CloudConfig) => {
+    setCloudConfig(config);
+    localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(config));
+};
+
+const handleCloudUpload = async () => {
+    const backup: FullBackup = {
+        rules,
+        logs,
+        exceptions,
+        destContainerMap,
+        accounts,
+        version: "v14",
+        timestamp: Date.now(),
+        backupDate: new Date().toLocaleString()
+    };
+    await uploadData(cloudConfig, backup);
+    const time = new Date().toLocaleString();
+    setLastSyncTime(time);
+    localStorage.setItem(LAST_SYNC_KEY, time);
+};
+
+const handleCloudDownload = async () => {
+    const data = await downloadData(cloudConfig);
+    if (data.rules) setRules(data.rules);
+    if (data.logs) setLogs(data.logs);
+    if (data.exceptions) setExceptions(data.exceptions);
+    if (data.destContainerMap) setDestContainerMap(data.destContainerMap);
+    if (data.accounts) setAccounts(data.accounts);
+    
+    // Trigger sync for other tabs
+    setTimeout(() => broadcastUpdate(), 500);
+
+    const time = new Date().toLocaleString();
+    setLastSyncTime(time);
+    localStorage.setItem(LAST_SYNC_KEY, time);
+};
+
 
   if (!userRole) {
     return <Login onLogin={(role) => {
@@ -411,6 +464,7 @@ const handleDeleteLocation = (locationCode: string) => {
         userRole={userRole} 
         onLogout={() => setUserRole(null)} 
         onQueryContainerHistory={() => setIsHistoryModalOpen(true)}
+        onOpenCloudSync={() => setIsCloudSyncOpen(true)}
       >
         <Routes>
           <Route path="/" element={<Dashboard rules={rules} />} />
@@ -424,6 +478,15 @@ const handleDeleteLocation = (locationCode: string) => {
         </Routes>
       </Layout>
       <ContainerHistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} destContainerMap={destContainerMap} rules={rules} />
+      <CloudSyncModal 
+        isOpen={isCloudSyncOpen} 
+        onClose={() => setIsCloudSyncOpen(false)} 
+        config={cloudConfig}
+        onSaveConfig={handleSaveCloudConfig}
+        onUpload={handleCloudUpload}
+        onDownload={handleCloudDownload}
+        lastSyncTime={lastSyncTime}
+      />
     </Router>
   );
 };

@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 type Language = 'en' | 'zh';
@@ -126,6 +127,20 @@ const translations = {
     descInbound: "Process container arrivals. Generate putaway tasks based on location rules.",
     descOutbound: "Manage pick lists, verify shipments, and generate BOLs.",
     descMaster: "Configure customers, destinations, and user permissions.",
+
+    // Cloud Sync
+    cloudSync: "Cloud Storage",
+    cloudDesc: "Sync data with your backend server.",
+    cloudSettings: "Connection Settings",
+    serverUrl: "Server/API URL",
+    urlRequired: "URL is required.",
+    settingsSaved: "Settings saved.",
+    apiKey: "API Key (Optional)",
+    pushToCloud: "Upload Data",
+    pullFromCloud: "Download Data",
+    syncSuccess: "Data synchronized successfully.",
+    syncError: "Synchronization failed.",
+    lastSync: "Last Sync:",
 
     // Modals & Alerts
     cancel: "Cancel",
@@ -335,6 +350,20 @@ const translations = {
     descInbound: "处理到柜拆柜。根据库位规则生成上架任务。",
     descOutbound: "管理拣货单，核对发货，生成 BOL。",
     descMaster: "配置客户、目的地映射及用户权限。",
+
+    // Cloud Sync
+    cloudSync: "后端云存储",
+    cloudDesc: "与远程服务器同步数据。",
+    cloudSettings: "连接设置",
+    serverUrl: "服务器接口地址",
+    urlRequired: "请输入服务器地址",
+    settingsSaved: "设置已保存",
+    apiKey: "API 密钥 (可选)",
+    pushToCloud: "上传更新数据",
+    pullFromCloud: "下载同步数据",
+    syncSuccess: "数据同步成功！",
+    syncError: "同步失败，请检查网络或设置。",
+    lastSync: "上次同步:",
 
     // Modals & Alerts
     cancel: "取消",

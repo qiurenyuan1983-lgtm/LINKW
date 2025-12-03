@@ -85,6 +85,22 @@ export type DestContainerMap = Record<string, Record<string, ContainerStats>>;
 
 export type Accounts = Record<string, { password: string; role: UserRole }>;
 
+export interface CloudConfig {
+    url: string;
+    apiKey: string;
+}
+
+export interface FullBackup {
+    rules: LocationRule[];
+    logs: LogEntry[];
+    exceptions: ExceptionEntry[];
+    destContainerMap: DestContainerMap;
+    accounts: Accounts;
+    version: string;
+    timestamp: number;
+    backupDate?: string; // Human readable
+}
+
 
 // V14 Location Types
 export const LOCATION_TYPES = [

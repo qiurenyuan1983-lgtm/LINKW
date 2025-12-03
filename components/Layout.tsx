@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ClipboardList, Package, AlertTriangle, Search, Menu, X, Users, Languages, Warehouse, RefreshCw, BarChart2, HardDrive } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Package, AlertTriangle, Search, Menu, X, Users, Languages, Warehouse, RefreshCw, HardDrive, Cloud } from 'lucide-react';
 import { UserRole } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -10,12 +9,18 @@ interface LayoutProps {
   userRole: UserRole;
   onLogout: () => void;
   onQueryContainerHistory: () => void;
+  onOpenCloudSync: () => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, userRole, onLogout, onQueryContainerHistory }) => {
+const Layout: React.FC<LayoutProps> = ({ children, userRole, onLogout, onQueryContainerHistory, onOpenCloudSync }) => {
   const { t, language, setLanguage } = useLanguage();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
+
+  // Fix BarChart2 import for BI link
+  const BarChart2 = ({ size }: { size: number }) => (
+     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+  );
 
   const navLinks = [
     { to: '/', labelKey: 'dashboard', icon: LayoutDashboard, roles: ['Mike', 'operator', 'staff'] },
@@ -108,6 +113,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, onLogout, onQueryCo
                   <RefreshCw size={12} className="animate-spin-slow text-green-600" style={{animationDuration: '3s'}} />
                   <span>Tab Sync</span>
                </div>
+               
+               {/* Cloud Sync Button */}
+               <button onClick={onOpenCloudSync} className="hidden lg:flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-medium border border-blue-200 hover:bg-blue-100 transition-colors" title={t('cloudSync')}>
+                  <Cloud size={12} />
+                  <span>{t('cloudSync')}</span>
+               </button>
 
                <button onClick={onQueryContainerHistory} className="flex items-center gap-2 text-sm text-slate-500 hover:text-blue-600">
                  <Search size={18} /> <span className="hidden sm:inline">{t('queryContainerHistory')}</span>
