@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LocationRule, UserRole, ColumnConfig, LOCATION_TYPES, DESTINATION_OPTIONS, UnloadPlan, UnloadPlanRow, DestContainerMap, LogEntry, ContainerStats } from '../types';
 import * as XLSX from 'xlsx';
@@ -697,7 +696,9 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
     if (!destContainerMap[dest]) return dest;
     const containers = destContainerMap[dest];
     const lines = Object.entries(containers).map(([container, stats]) => {
-         const s = (typeof stats === 'number') ? { pallets: stats, cartons: 0 } : stats;
+         const val: any = stats;
+         // Handle legacy number or new ContainerStats object
+         const s = (typeof val === 'number') ? { pallets: val, cartons: 0 } : (val as ContainerStats);
          return `${container}: ${s.pallets} plts | ${s.cartons} ctns`;
     });
     return `${dest}\n---\n${lines.join('\n')}`;
@@ -715,7 +716,7 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
   };
 
   return (
-    <div className="space-y-4 relative">
+    <div className="flex flex-col h-[calc(100vh-140px)] space-y-4 relative">
         <BarcodeScanner 
             isOpen={isScannerOpen} 
             onClose={() => setIsScannerOpen(false)} 
@@ -734,7 +735,7 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
         />
 
         {/* Toolbar */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center z-10 relative">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center z-10 flex-none">
             <div className="flex gap-2 w-full xl:w-auto">
                 <div className="relative flex-1 xl:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -848,15 +849,15 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
         )}
 
         {showColSettings && (
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm relative z-20 shadow-lg mb-4">
+          <div className="absolute top-20 right-4 w-64 bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm z-30 shadow-2xl animate-fade-in-up">
             <div className="flex justify-between items-center mb-3">
                 <h4 className="font-bold text-slate-700">{t('columnSettings')}</h4>
                 <button onClick={() => setShowColSettings(false)} className="p-1 rounded-full hover:bg-slate-200"><X size={18} /></button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 max-h-[60vh] overflow-y-auto">
                 <div>
                     <h5 className="font-semibold text-slate-600 mb-2 border-b pb-1">Visible Columns</h5>
-                    <ul className="space-y-1 min-h-[100px]">
+                    <ul className="space-y-1 min-h-[50px]">
                         {columns.filter(c => c.visible).sort((a,b) => a.order - b.order).map((col, index, visibleCols) => (
                             <li key={col.id} className="flex items-center justify-between p-2 rounded bg-white hover:bg-slate-100 border">
                                 <span className="font-medium">{col.label}</span>
@@ -883,13 +884,13 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
           </div>
         )}
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto min-h-[400px]">
-               <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
+            <div className="overflow-auto flex-1 w-full relative">
+               <table className="w-full text-sm text-left relative border-collapse">
+                  <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-20 shadow-sm">
                      <tr>
                         {sortedColumns.map(col => (
-                           <th key={col.id} className="px-4 py-3 whitespace-nowrap">
+                           <th key={col.id} className="px-4 py-3 whitespace-nowrap bg-slate-50">
                               <button onClick={() => handleSort(col.id)} className="flex items-center gap-1 hover:text-slate-800 font-semibold focus:outline-none">
                                  {col.label}
                                  {sortConfig.key === col.id && (
@@ -1040,7 +1041,7 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
                </table>
             </div>
             
-            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-center justify-end gap-4">
+            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-center justify-end gap-4 flex-none">
                 <span className="text-xs text-slate-500">
                     {t('count')}: {sortedAndFilteredRules.length}
                 </span>

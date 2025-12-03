@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Layout from './components/Layout';
@@ -170,6 +170,9 @@ const AppContent: React.FC = () => {
   const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
+  // Flag to prevent infinite broadcast loops
+  const isRemoteUpdate = useRef(false);
+
   const syncChannel = useMemo(() => new BroadcastChannel('linkw_app_sync'), []);
 
   useEffect(() => {
@@ -227,8 +230,19 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const handleSync = () => {
          try {
+             // Mark this update as remote to prevent echoing it back
+             isRemoteUpdate.current = true;
+
              const savedRules = localStorage.getItem(STORAGE_KEY);
-             if (savedRules) setRules(JSON.parse(savedRules));
+             if (savedRules) {
+                const parsedRules = JSON.parse(savedRules) as LocationRule[];
+                // Ensure migration runs on sync as well
+                const migratedRules = parsedRules.map(rule => {
+                    const defaultRule = buildDefaultRule(rule.range);
+                    return { ...defaultRule, ...rule };
+                });
+                setRules(migratedRules);
+             }
              
              const savedExceptions = localStorage.getItem(EXCEPTIONS_KEY);
              if (savedExceptions) setExceptions(JSON.parse(savedExceptions));
@@ -272,6 +286,13 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
+    // Determine if this is a remote update
+    if (isRemoteUpdate.current) {
+        // Reset flag and do NOT broadcast or save again (since we just read it)
+        isRemoteUpdate.current = false;
+        return;
+    }
+
     const handler = setTimeout(() => {
         if(rules.length > 0) {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
@@ -282,22 +303,26 @@ const AppContent: React.FC = () => {
   }, [rules]);
   
   useEffect(() => {
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-    broadcastUpdate();
+      if (isRemoteUpdate.current) return;
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+      broadcastUpdate();
   }, [accounts]);
 
   useEffect(() => {
-    localStorage.setItem(LOG_KEY, JSON.stringify(logs));
-    broadcastUpdate();
+      if (isRemoteUpdate.current) return;
+      localStorage.setItem(LOG_KEY, JSON.stringify(logs));
+      broadcastUpdate();
   }, [logs]);
   
   useEffect(() => {
-    localStorage.setItem(EXCEPTIONS_KEY, JSON.stringify(exceptions));
-    broadcastUpdate();
+      if (isRemoteUpdate.current) return;
+      localStorage.setItem(EXCEPTIONS_KEY, JSON.stringify(exceptions));
+      broadcastUpdate();
   }, [exceptions]);
 
   useEffect(() => {
-    const handler = setTimeout(() => {
+      if (isRemoteUpdate.current) return;
+      const handler = setTimeout(() => {
         localStorage.setItem(DEST_CONTAINER_KEY, JSON.stringify(destContainerMap));
         broadcastUpdate();
     }, 800); 

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ClipboardList, Package, AlertTriangle, Search, Menu, X, Users, Languages, Warehouse, RefreshCw, BarChart2 } from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Package, AlertTriangle, Search, Menu, X, Users, Languages, Warehouse, RefreshCw, BarChart2, HardDrive } from 'lucide-react';
 import { UserRole } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -101,9 +101,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, onLogout, onQueryCo
             <div className="hidden md:block"></div> {/* Spacer */}
             <div className="flex items-center gap-4">
                {/* Sync Status Indicator */}
-               <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-200">
-                  <RefreshCw size={12} className="animate-spin-slow" style={{animationDuration: '3s'}} />
-                  {t('syncActive')}
+               <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium border border-slate-200" title="Data is stored locally in this browser. Use Import/Export to move data between devices.">
+                  <HardDrive size={12} />
+                  <span>Local Data</span>
+                  <div className="w-px h-3 bg-slate-300 mx-1"></div>
+                  <RefreshCw size={12} className="animate-spin-slow text-green-600" style={{animationDuration: '3s'}} />
+                  <span>Tab Sync</span>
                </div>
 
                <button onClick={onQueryContainerHistory} className="flex items-center gap-2 text-sm text-slate-500 hover:text-blue-600">
