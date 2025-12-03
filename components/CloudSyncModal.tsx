@@ -137,7 +137,16 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
                     {showSettings && (
                         <div className="bg-slate-50 p-4 rounded-lg space-y-3 animate-fade-in-up">
                             <div>
-                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('serverUrl')}</label>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="block text-xs font-medium text-slate-600">{t('serverUrl')}</label>
+                                    <button 
+                                        onClick={() => setUrl('/api/sync')} 
+                                        className="text-[10px] text-blue-600 hover:underline flex items-center gap-1"
+                                        title="Use built-in Vercel Function path"
+                                    >
+                                        <Cloud size={10} /> Use Vercel Function
+                                    </button>
+                                </div>
                                 <input 
                                     type="text" 
                                     value={url} 
