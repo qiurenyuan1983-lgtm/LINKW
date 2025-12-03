@@ -1,0 +1,20 @@
+{
+  "short_name": "LinkW",
+  "name": "LinkW Warehouse System",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0c4a6e",
+  "background_color": "#f8fafc"
+}
