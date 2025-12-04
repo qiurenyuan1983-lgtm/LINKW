@@ -25,7 +25,7 @@ export default async function handler(request: Request) {
       const token = authHeader?.replace('Bearer ', '').trim();
       
       if (token !== envApiKey) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers });
+        return new Response(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }), { status: 401, headers });
       }
     }
 
@@ -35,24 +35,35 @@ export default async function handler(request: Request) {
     // Health Check / Database Connection Test
     if (action === 'health') {
         try {
-            // Try to write and read from KV to ensure connection
+            // Verify KV connection by writing and reading a timestamp
             const timestamp = Date.now();
             await kv.set('health_check', timestamp);
             const val = await kv.get('health_check');
             
             if (val === timestamp) {
-                return new Response(JSON.stringify({ status: 'ok', database: 'connected', timestamp }), { status: 200, headers });
+                return new Response(JSON.stringify({ 
+                    status: 'ok', 
+                    database: 'connected', 
+                    message: 'Backend and Database (KV) operational',
+                    timestamp 
+                }), { status: 200, headers });
             } else {
-                 return new Response(JSON.stringify({ status: 'error', database: 'mismatch', message: 'Read/Write verification failed' }), { status: 500, headers });
+                 return new Response(JSON.stringify({ 
+                     status: 'error', 
+                     database: 'mismatch', 
+                     message: 'Database read/write verification failed.' 
+                 }), { status: 503, headers });
             }
         } catch (dbError: any) {
             console.error("KV Error:", dbError);
+            // Specific error guidance for the user
             return new Response(JSON.stringify({ 
                 status: 'error', 
-                message: 'Database connection failed', 
+                database: 'disconnected',
+                message: 'Database connection failed.', 
                 details: dbError.message,
-                hint: 'Ensure Vercel KV is linked to this project.'
-            }), { status: 500, headers });
+                hint: 'Please create a Vercel KV store in your Vercel Project > Storage tab.'
+            }), { status: 503, headers });
         }
     }
 
@@ -64,7 +75,7 @@ export default async function handler(request: Request) {
     if (request.method === 'POST') {
       const body = await request.json();
       await kv.set('warehouse_backup', body);
-      return new Response(JSON.stringify({ success: true }), { status: 200, headers });
+      return new Response(JSON.stringify({ success: true, message: 'Data saved successfully' }), { status: 200, headers });
     }
 
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });

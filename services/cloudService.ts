@@ -1,27 +1,36 @@
 import { CloudConfig, FullBackup } from '../types';
 
-export async function checkServerHealth(config: CloudConfig): Promise<{status: string, database?: string, message?: string, details?: string}> {
+export async function checkServerHealth(config: CloudConfig): Promise<{status: string, database?: string, message?: string, details?: string, hint?: string}> {
     if (!config.url) throw new Error("Missing Server URL");
     const baseUrl = config.url.replace(/\/$/, "");
-    // Handle query params if already present in the user-provided URL
     const separator = baseUrl.includes('?') ? '&' : '?';
     const url = `${baseUrl}${separator}action=health`;
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
         const response = await fetch(url, {
             method: 'GET',
             headers: {
                  ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}`, 'X-API-Key': config.apiKey } : {})
-            }
+            },
+            signal: controller.signal
         });
         
+        clearTimeout(timeoutId);
+        
         const data = await response.json();
-        if (!response.ok) {
-             throw new Error(data.message || data.error || `Server error (${response.status})`);
+        // Return data even if response is not OK, so we can see the error details from the server
+        if (!response.ok && !data.message) {
+             throw new Error(`Server error (${response.status})`);
         }
         return data;
-    } catch (e) {
+    } catch (e: any) {
         console.error("Health check failed", e);
+        if (e.name === 'AbortError') {
+            throw new Error("Connection timed out. Check your URL.");
+        }
         throw e;
     }
 }
@@ -29,7 +38,6 @@ export async function checkServerHealth(config: CloudConfig): Promise<{status: s
 export async function uploadData(config: CloudConfig, data: FullBackup): Promise<boolean> {
     if (!config.url) throw new Error("Missing Server URL");
     
-    // Remove trailing slash if present for cleaner URL construction, though usually fetch handles it
     const url = config.url.replace(/\/$/, "");
 
     try {
@@ -74,7 +82,6 @@ export async function downloadData(config: CloudConfig): Promise<FullBackup> {
         
         const data = await response.json();
         
-        // Basic validation
         if (!data || typeof data !== 'object') {
             throw new Error("Invalid response format: Expected JSON object");
         }

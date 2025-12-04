@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CloudConfig, FullBackup } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { checkServerHealth } from '../services/cloudService';
-import { X, Cloud, Upload, Download, Settings, Save, AlertCircle, CheckCircle, Activity, Wifi } from 'lucide-react';
+import { X, Cloud, Upload, Download, Settings, Save, AlertCircle, CheckCircle, Activity, Wifi, Database } from 'lucide-react';
 
 interface Props {
     isOpen: boolean;
@@ -24,6 +24,7 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
     // Test Connection State
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [testMsg, setTestMsg] = useState('');
+    const [dbHint, setDbHint] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -33,6 +34,7 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
             setStatus({ type: 'idle', message: '' });
             setTestStatus('idle');
             setTestMsg('');
+            setDbHint('');
         }
     }, [isOpen, config]);
 
@@ -55,14 +57,22 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
         }
         setTestStatus('loading');
         setTestMsg('Connecting...');
+        setDbHint('');
+
         try {
             const result = await checkServerHealth({ url: url.trim(), apiKey: apiKey.trim() });
+            
             if (result.status === 'ok' && result.database === 'connected') {
                 setTestStatus('success');
-                setTestMsg('Success: Backend & DB Connected');
+                setTestMsg('Success: Backend & Database Connected');
+            } else if (result.status === 'error' && result.database === 'disconnected') {
+                setTestStatus('error');
+                setTestMsg('Backend OK, but Database disconnected');
+                setDbHint(result.hint || 'Configure Vercel KV in your project storage settings.');
             } else {
                 setTestStatus('error');
-                setTestMsg(`Backend OK, DB Error: ${result.message || result.details || 'Unknown'}`);
+                setTestMsg(`Error: ${result.message || 'Unknown server error'}`);
+                if (result.hint) setDbHint(result.hint);
             }
         } catch (e: any) {
             setTestStatus('error');
@@ -171,17 +181,17 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
                                     <label className="block text-xs font-medium text-slate-600">{t('serverUrl')}</label>
                                     <button 
                                         onClick={() => setUrl('/api/sync')} 
-                                        className="text-[10px] text-blue-600 hover:underline flex items-center gap-1"
+                                        className="text-[10px] text-blue-600 hover:underline flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-100"
                                         title="Use built-in Vercel Function path"
                                     >
-                                        <Cloud size={10} /> Use Vercel Function
+                                        <Cloud size={10} /> Use Default Vercel API
                                     </button>
                                 </div>
                                 <input 
                                     type="text" 
                                     value={url} 
                                     onChange={e => setUrl(e.target.value)} 
-                                    placeholder="https://api.example.com/data" 
+                                    placeholder="https://your-project.vercel.app/api/sync" 
                                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none" 
                                 />
                             </div>
@@ -197,16 +207,24 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
                             </div>
 
                             {/* Test Status Feedback */}
-                            {testMsg && (
-                                <div className={`text-xs px-2 py-1.5 rounded flex items-center gap-1.5 ${
+                            {(testMsg || dbHint) && (
+                                <div className={`text-xs px-2 py-2 rounded flex flex-col gap-1 ${
                                     testStatus === 'success' ? 'bg-emerald-100 text-emerald-700' :
                                     testStatus === 'error' ? 'bg-red-100 text-red-700' :
                                     'bg-blue-100 text-blue-700'
                                 }`}>
-                                    {testStatus === 'loading' && <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"/>}
-                                    {testStatus === 'success' && <CheckCircle size={12} />}
-                                    {testStatus === 'error' && <AlertCircle size={12} />}
-                                    {testMsg}
+                                    <div className="flex items-center gap-1.5 font-medium">
+                                        {testStatus === 'loading' && <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"/>}
+                                        {testStatus === 'success' && <CheckCircle size={12} />}
+                                        {testStatus === 'error' && <AlertCircle size={12} />}
+                                        {testMsg}
+                                    </div>
+                                    {dbHint && (
+                                        <div className="flex items-start gap-1.5 text-[10px] opacity-90 border-t border-red-200 pt-1 mt-0.5">
+                                            <Database size={10} className="mt-0.5 flex-shrink-0" />
+                                            <span>{dbHint}</span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
