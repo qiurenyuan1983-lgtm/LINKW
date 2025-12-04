@@ -64,11 +64,11 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
             
             if (result.status === 'ok' && result.database === 'connected') {
                 setTestStatus('success');
-                setTestMsg('Success: Backend & Database Connected');
+                setTestMsg('Connected to Vercel Blob');
             } else if (result.status === 'error' && result.database === 'disconnected') {
                 setTestStatus('error');
-                setTestMsg('Backend Connected, Database Failed');
-                setDbHint(result.hint || 'Please configure Vercel KV in your project settings.');
+                setTestMsg('Backend Connected, Blob Failed');
+                setDbHint(result.hint || 'Please configure Vercel Blob in your project settings.');
             } else {
                 setTestStatus('error');
                 setTestMsg(`Error: ${result.message || 'Unknown server error'}`);

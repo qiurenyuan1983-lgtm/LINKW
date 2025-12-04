@@ -1,91 +1,105 @@
-import { kv } from '@vercel/kv';
+import { put, list } from '@vercel/blob';
 
-export const config = {
-  runtime: 'edge',
-};
+// Using standard Node.js runtime for Vercel Functions
+export default async function handler(request, response) {
+  const BACKUP_FILENAME = 'warehouse_backup.json';
+  
+  // Configuration: Use Environment Variable or Fallback to provided token
+  const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || "vercel_blob_rw_8o6KtljWo845d7WJ_Z4Kr9dJFuFfAbAug7HBrZlwJA0CIcG";
 
-export default async function handler(request: Request) {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
-    'Content-Type': 'application/json',
-  };
+  // Set CORS headers
+  response.setHeader('Access-Control-Allow-Origin', '*');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
 
-  // Handle CORS preflight
+  // Handle preflight request
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return response.status(200).end();
   }
 
   try {
     // Optional: Check for API Key if configured in Vercel Environment Variables
     const envApiKey = process.env.SYNC_API_KEY;
     if (envApiKey) {
-      const authHeader = request.headers.get('Authorization') || request.headers.get('X-API-Key');
+      // In Node.js, headers are lowercase
+      const authHeader = request.headers.authorization || request.headers['x-api-key'];
       const token = authHeader?.replace('Bearer ', '').trim();
       
       if (token !== envApiKey) {
-        return new Response(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }), { status: 401, headers });
+        return response.status(401).json({ error: 'Unauthorized: Invalid API Key' });
       }
     }
 
-    const url = new URL(request.url);
-    const action = url.searchParams.get('action');
+    const { action } = request.query;
 
-    // Health Check / Database Connection Test
+    // Health Check / Storage Connection Test
     if (action === 'health') {
-        try {
-            // Check if KV environment variables are present (basic check)
-            if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-                 throw new Error("Missing KV Environment Variables");
-            }
-
-            // Verify KV connection by writing and reading a timestamp
-            const timestamp = Date.now();
-            await kv.set('health_check', timestamp);
-            const val = await kv.get('health_check');
-            
-            if (Number(val) === timestamp) {
-                return new Response(JSON.stringify({ 
-                    status: 'ok', 
-                    database: 'connected', 
-                    message: 'Backend and Database (KV) operational',
-                    timestamp 
-                }), { status: 200, headers });
-            } else {
-                 return new Response(JSON.stringify({ 
-                     status: 'error', 
-                     database: 'mismatch', 
-                     message: 'Database read/write verification failed.' 
-                 }), { status: 503, headers });
-            }
-        } catch (dbError: any) {
-            console.error("KV Error:", dbError);
-            // Specific error guidance for the user
-            return new Response(JSON.stringify({ 
+        if (!BLOB_TOKEN) {
+             return response.status(503).json({ 
                 status: 'error', 
                 database: 'disconnected',
-                message: 'Database connection failed.', 
+                message: 'Vercel Blob token missing', 
+                hint: 'Link a Vercel Blob store in Project Settings > Storage tab.'
+            });
+        }
+
+        try {
+            // Verify Blob access by listing files
+            await list({ limit: 1, token: BLOB_TOKEN });
+            
+            return response.status(200).json({ 
+                status: 'ok', 
+                database: 'connected', 
+                message: 'Vercel Blob Operational',
+                timestamp: Date.now()
+            });
+        } catch (dbError: any) {
+            console.error("Blob Error:", dbError);
+            return response.status(503).json({ 
+                status: 'error', 
+                database: 'disconnected',
+                message: 'Storage connection failed', 
                 details: dbError.message,
-                hint: 'Please create a Vercel KV store in your Vercel Project > Storage tab.'
-            }), { status: 503, headers });
+                hint: 'Check your Vercel Blob credentials.'
+            });
         }
     }
 
     if (request.method === 'GET') {
-      const data = await kv.get('warehouse_backup');
-      return new Response(JSON.stringify(data || {}), { status: 200, headers });
+      // Find the backup file
+      const { blobs } = await list({ prefix: BACKUP_FILENAME, limit: 1, token: BLOB_TOKEN });
+      const backupFile = blobs.find(b => b.pathname === BACKUP_FILENAME);
+
+      if (backupFile) {
+          // Fetch the content from the Blob URL
+          const fileResponse = await fetch(backupFile.url);
+          const data = await fileResponse.json();
+          return response.status(200).json(data);
+      }
+      
+      // Return empty object if no backup exists yet
+      return response.status(200).json({});
     }
 
     if (request.method === 'POST') {
-      const body = await request.json();
-      await kv.set('warehouse_backup', body);
-      return new Response(JSON.stringify({ success: true, message: 'Data saved successfully' }), { status: 200, headers });
+      // In Vercel Node.js functions, request.body is already parsed for JSON content-types
+      const body = request.body;
+      
+      // Save data to Blob storage, overwriting existing file
+      await put(BACKUP_FILENAME, JSON.stringify(body), { 
+          access: 'public', 
+          addRandomSuffix: false, // Ensures we overwrite the file at the same path
+          token: BLOB_TOKEN,
+          contentType: 'application/json'
+      });
+
+      return response.status(200).json({ success: true, message: 'Data saved to Vercel Blob' });
     }
 
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
+    return response.status(405).json({ error: 'Method not allowed' });
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
+    console.error("API Error:", error);
+    return response.status(500).json({ error: error.message });
   }
 }
