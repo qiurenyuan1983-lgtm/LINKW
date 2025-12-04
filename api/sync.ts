@@ -19,7 +19,6 @@ export default async function handler(request: Request) {
 
   try {
     // Optional: Check for API Key if configured in Vercel Environment Variables
-    // Configure SYNC_API_KEY in your Vercel Project Settings to enable protection
     const envApiKey = process.env.SYNC_API_KEY;
     if (envApiKey) {
       const authHeader = request.headers.get('Authorization') || request.headers.get('X-API-Key');
@@ -30,35 +29,47 @@ export default async function handler(request: Request) {
       }
     }
 
-    if (request.method === 'POST') {
-      const body = await request.json();
-      
-      // Basic validation ensuring it looks like our backup data
-      if (!body || !body.timestamp || !body.version) {
-        return new Response(JSON.stringify({ error: 'Invalid data payload' }), { status: 400, headers });
-      }
+    const url = new URL(request.url);
+    const action = url.searchParams.get('action');
 
-      // Store data in Vercel KV
-      // We use a fixed key 'warehouse_data' for simplicity. 
-      await kv.set('warehouse_data', body);
-
-      return new Response(JSON.stringify({ success: true, timestamp: Date.now() }), { status: 200, headers });
+    // Health Check / Database Connection Test
+    if (action === 'health') {
+        try {
+            // Try to write and read from KV to ensure connection
+            const timestamp = Date.now();
+            await kv.set('health_check', timestamp);
+            const val = await kv.get('health_check');
+            
+            if (val === timestamp) {
+                return new Response(JSON.stringify({ status: 'ok', database: 'connected', timestamp }), { status: 200, headers });
+            } else {
+                 return new Response(JSON.stringify({ status: 'error', database: 'mismatch', message: 'Read/Write verification failed' }), { status: 500, headers });
+            }
+        } catch (dbError: any) {
+            console.error("KV Error:", dbError);
+            return new Response(JSON.stringify({ 
+                status: 'error', 
+                message: 'Database connection failed', 
+                details: dbError.message,
+                hint: 'Ensure Vercel KV is linked to this project.'
+            }), { status: 500, headers });
+        }
     }
 
     if (request.method === 'GET') {
-      const data = await kv.get('warehouse_data');
-      
-      if (!data) {
-        return new Response(JSON.stringify({ error: 'No data found' }), { status: 404, headers });
-      }
+      const data = await kv.get('warehouse_backup');
+      return new Response(JSON.stringify(data || {}), { status: 200, headers });
+    }
 
-      return new Response(JSON.stringify(data), { status: 200, headers });
+    if (request.method === 'POST') {
+      const body = await request.json();
+      await kv.set('warehouse_backup', body);
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers });
     }
 
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers });
 
-  } catch (error) {
-    console.error('Sync Error:', error);
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500, headers });
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers });
   }
 }

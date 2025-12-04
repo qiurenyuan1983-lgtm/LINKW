@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { CloudConfig, FullBackup } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { X, Cloud, Upload, Download, Settings, Save, AlertCircle, CheckCircle } from 'lucide-react';
+import { checkServerHealth } from '../services/cloudService';
+import { X, Cloud, Upload, Download, Settings, Save, AlertCircle, CheckCircle, Activity, Wifi } from 'lucide-react';
 
 interface Props {
     isOpen: boolean;
@@ -19,6 +20,10 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
     const [apiKey, setApiKey] = useState('');
     const [showSettings, setShowSettings] = useState(false);
     const [status, setStatus] = useState<{type: 'idle' | 'loading' | 'success' | 'error', message: string}>({ type: 'idle', message: '' });
+    
+    // Test Connection State
+    const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+    const [testMsg, setTestMsg] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -26,6 +31,8 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
             setApiKey(config.apiKey || '');
             setShowSettings(!config.url); // Show settings if no URL configured
             setStatus({ type: 'idle', message: '' });
+            setTestStatus('idle');
+            setTestMsg('');
         }
     }, [isOpen, config]);
 
@@ -38,6 +45,29 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
         setShowSettings(false);
         setStatus({ type: 'success', message: t('settingsSaved') || 'Settings saved' });
         setTimeout(() => setStatus({ type: 'idle', message: '' }), 2000);
+    };
+    
+    const handleTestConnection = async () => {
+        if (!url.trim()) {
+            setTestStatus('error');
+            setTestMsg(t('urlRequired') || 'URL is required');
+            return;
+        }
+        setTestStatus('loading');
+        setTestMsg('Connecting...');
+        try {
+            const result = await checkServerHealth({ url: url.trim(), apiKey: apiKey.trim() });
+            if (result.status === 'ok' && result.database === 'connected') {
+                setTestStatus('success');
+                setTestMsg('Success: Backend & DB Connected');
+            } else {
+                setTestStatus('error');
+                setTestMsg(`Backend OK, DB Error: ${result.message || result.details || 'Unknown'}`);
+            }
+        } catch (e: any) {
+            setTestStatus('error');
+            setTestMsg(`Connection Failed: ${e.message}`);
+        }
     };
 
     const handleAction = async (action: 'upload' | 'download') => {
@@ -165,12 +195,36 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
                                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none" 
                                 />
                             </div>
-                            <button 
-                                onClick={handleSaveSettings}
-                                className="w-full py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
-                            >
-                                <Save size={14} /> {t('done')}
-                            </button>
+
+                            {/* Test Status Feedback */}
+                            {testMsg && (
+                                <div className={`text-xs px-2 py-1.5 rounded flex items-center gap-1.5 ${
+                                    testStatus === 'success' ? 'bg-emerald-100 text-emerald-700' :
+                                    testStatus === 'error' ? 'bg-red-100 text-red-700' :
+                                    'bg-blue-100 text-blue-700'
+                                }`}>
+                                    {testStatus === 'loading' && <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"/>}
+                                    {testStatus === 'success' && <CheckCircle size={12} />}
+                                    {testStatus === 'error' && <AlertCircle size={12} />}
+                                    {testMsg}
+                                </div>
+                            )}
+
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={handleTestConnection}
+                                    disabled={testStatus === 'loading'}
+                                    className="flex-1 py-2 bg-white border border-slate-300 text-slate-700 text-sm rounded hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Activity size={14} /> Test Connection
+                                </button>
+                                <button 
+                                    onClick={handleSaveSettings}
+                                    className="flex-1 py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Save size={14} /> {t('done')}
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
