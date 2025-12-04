@@ -40,7 +40,6 @@ export default async function handler(request: Request) {
 
       // Store data in Vercel KV
       // We use a fixed key 'warehouse_data' for simplicity. 
-      // For multi-tenant apps, you would use a dynamic key based on user/ID.
       await kv.set('warehouse_data', body);
 
       return new Response(JSON.stringify({ success: true, timestamp: Date.now() }), { status: 200, headers });
