@@ -15,8 +15,9 @@ import CloudSyncModal from './components/CloudSyncModal';
 import { UserRole, LocationRule, LogEntry, DestContainerMap, ExceptionEntry, Accounts, CloudConfig, FullBackup } from './types';
 import { generateDefaultRules, buildDefaultRule } from './services/dataService';
 import { uploadData, downloadData } from './services/cloudService';
+import { classifyDestinationForRule } from './services/excelService';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
-import { X, Search as SearchIcon, Inbox } from 'lucide-react';
+import { X, Search as SearchIcon, Inbox, Printer, Trash2 } from 'lucide-react';
 import { NotificationProvider, useNotifications } from './components/Notifications';
 
 const STORAGE_KEY = "la_location_rules_v14"; 
@@ -26,11 +27,12 @@ const DEST_CONTAINER_KEY = "la_dest_container_map_v14";
 const ACCOUNTS_KEY = "la_accounts_v14";
 const CLOUD_CONFIG_KEY = "la_cloud_config_v14";
 const LAST_SYNC_KEY = "la_last_sync_time_v14";
+const SESSION_KEY = "la_session_v14";
 
 const DEFAULT_ACCOUNTS: Accounts = {
   Mike: { password: "lk2025", role: "Mike" as UserRole },
-  operator: { password: "123456", role: "operator" as UserRole },
-  staff: { password: "123456", role: "staff" as UserRole }
+  '入库组': { password: "123456", role: "operator" as UserRole },
+  '出库组': { password: "123456", role: "staff" as UserRole }
 };
 
 
@@ -40,13 +42,14 @@ interface ContainerHistoryModalProps {
   onClose: () => void;
   destContainerMap: DestContainerMap;
   rules: LocationRule[];
+  onDeleteContainer: (containerNo: string) => void;
 }
 type ContainerDetails = {
   containerNo: string;
   entries: { dest: string; pallets: number; cartons: number }[];
 };
 
-const ContainerHistoryModal: React.FC<ContainerHistoryModalProps> = ({ isOpen, onClose, destContainerMap, rules }) => {
+const ContainerHistoryModal: React.FC<ContainerHistoryModalProps> = ({ isOpen, onClose, destContainerMap, rules, onDeleteContainer }) => {
   const { t } = useLanguage();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedContainer, setSelectedContainer] = useState<ContainerDetails | null>(null);
@@ -87,18 +90,149 @@ const ContainerHistoryModal: React.FC<ContainerHistoryModalProps> = ({ isOpen, o
         .join(', ');
   }
 
+  const getLocationNotes = (dest: string) => {
+      // 1. Try to find notes from assigned rules
+      const matchedRules = rules.filter(r => r.destinations && r.destinations.split(/[，,]/).map(d => d.trim()).includes(dest));
+      const notes = Array.from(new Set(matchedRules.map(r => r.note).filter(Boolean)));
+      if (notes.length > 0) return notes.join('; ');
+
+      // 2. Fallback: Determine default note based on destination classification
+      const category = classifyDestinationForRule(dest);
+      const keyMap: Record<string, string> = {
+          'amz-main': 'amz-main-A',
+          'amz-buffer': 'amz-buffer',
+          'sehin': 'sehin',
+          'private': 'private',
+          'platform': 'platform',
+          'express': 'express',
+          'highvalue': 'highvalue',
+          'suspense': 'suspense'
+      };
+      
+      const key = keyMap[category];
+      return key ? t(key as any) : '';
+  }
+
+  const totals = useMemo(() => {
+    if (!selectedContainer) return { pallets: 0, cartons: 0 };
+    return selectedContainer.entries.reduce((acc, curr) => ({
+      pallets: acc.pallets + curr.pallets,
+      cartons: acc.cartons + curr.cartons
+    }), { pallets: 0, cartons: 0 });
+  }, [selectedContainer]);
+
+  const handlePrint = () => {
+    if (!selectedContainer) return;
+    
+    // Calculate totals
+    const totalPallets = selectedContainer.entries.reduce((sum, entry) => sum + entry.pallets, 0);
+    const totalCartons = selectedContainer.entries.reduce((sum, entry) => sum + entry.cartons, 0);
+
+    // Generate Table Rows
+    // Order: Destination Tag, Pallets, Cartons, Location Arrangement, Note
+    const rows = selectedContainer.entries.map(entry => {
+        const notes = getLocationNotes(entry.dest);
+        const locs = getLocationArrangement(entry.dest);
+        return `
+          <tr>
+            <td style="text-align: center;">${entry.dest}</td>
+            <td style="text-align: center;">${entry.pallets}</td>
+            <td style="text-align: center;">${entry.cartons}</td>
+            <td style="text-align: center;">${locs}</td>
+            <td style="text-align: center;">${notes}</td>
+          </tr>
+        `;
+    }).join('');
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${t('containerDetails')} - ${selectedContainer.containerNo}</title>
+        <style>
+          body { 
+            font-family: "Microsoft YaHei", sans-serif; 
+            font-size: 14px; 
+            font-weight: bold; /* 100% bold */
+            -webkit-print-color-adjust: exact; 
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 10px; 
+            border: 2px solid #000; /* Outer border */
+          }
+          th, td { 
+            border: 1px solid #000; /* Inner borders */
+            padding: 6px 8px; 
+            vertical-align: middle; 
+          }
+          
+          th { 
+             background-color: #D9D9D9 !important; /* White, Background 1, Darker 25% */
+             font-weight: bold;
+             text-align: center;
+             height: 40px;
+          }
+          
+          h2 { text-align: center; margin-bottom: 5px; }
+          .meta { text-align: center; margin-bottom: 20px; font-weight: normal; font-size: 12px; }
+          
+          @media print {
+            th { background-color: #D9D9D9 !important; -webkit-print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <h2>${t('containerDetails')}: ${selectedContainer.containerNo}</h2>
+        <div class="meta">${t('time')}: ${new Date().toLocaleString()}</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 20%;">${t('colDest')}</th>
+              <th style="width: 10%;">${t('palletCount')}</th>
+              <th style="width: 10%;">${t('colCartons')}</th>
+              <th style="width: 20%;">${t('locationArrangement')}</th>
+              <th style="width: 40%;">${t('colNote')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+            <tr>
+              <td style="text-align: center;">${t('total')}</td>
+              <td style="text-align: center;">${totalPallets}</td>
+              <td style="text-align: center;">${totalCartons}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tbody>
+        </table>
+        <script>
+            window.onload = () => { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.focus();
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-[800px] max-w-[95%] h-[600px] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-2xl w-[900px] max-w-[95%] h-[600px] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b flex justify-between items-center">
           <h3 className="text-lg font-bold text-slate-800">{t('containerHistoryTitle')}</h3>
           <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-100"><X size={20} /></button>
         </div>
         
         <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
-          <div className="w-full sm:w-1/3 border-b sm:border-b-0 sm:border-r flex flex-col h-48 sm:h-auto">
+          <div className="w-full sm:w-1/4 border-b sm:border-b-0 sm:border-r flex flex-col h-48 sm:h-auto">
             <div className="p-2 border-b">
                <div className="relative">
                   <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -113,41 +247,80 @@ const ContainerHistoryModal: React.FC<ContainerHistoryModalProps> = ({ isOpen, o
             </div>
             <div className="flex-1 overflow-y-auto">
                {filteredContainers.map(container => (
-                 <button 
+                 <div 
                    key={container.containerNo}
                    onClick={() => setSelectedContainer(container)}
-                   className={`w-full text-left px-3 py-2 text-sm truncate font-mono ${selectedContainer?.containerNo === container.containerNo ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-slate-50'}`}
+                   className={`w-full text-left px-3 py-2 text-sm truncate font-mono flex items-center justify-between cursor-pointer group ${selectedContainer?.containerNo === container.containerNo ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-slate-50'}`}
                  >
-                   {container.containerNo}
-                 </button>
+                   <span className="truncate flex-1" title={container.containerNo}>{container.containerNo}</span>
+                   {selectedContainer?.containerNo === container.containerNo && (
+                      <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if(confirm(t('confirmDeleteContainer', {container: container.containerNo}))) {
+                                onDeleteContainer(container.containerNo);
+                                setSelectedContainer(null);
+                            }
+                        }}
+                        className="ml-1 p-1 bg-red-100 text-red-600 hover:bg-red-200 rounded transition-colors"
+                        title={t('delete')}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                   )}
+                 </div>
                ))}
                {filteredContainers.length === 0 && <p className="text-center text-xs text-slate-400 p-4">{t('noContainerFound')}</p>}
             </div>
           </div>
           
-          <div className="w-full sm:w-2/3 overflow-y-auto p-4">
+          <div className="w-full sm:w-3/4 overflow-y-auto p-4">
              {selectedContainer ? (
                <div>
-                 <h4 className="font-bold text-slate-700 mb-3">{t('containerDetails')}: <span className="font-mono bg-slate-100 px-2 py-1 rounded">{selectedContainer.containerNo}</span></h4>
-                 <table className="w-full text-sm">
-                    <thead className="text-left bg-slate-50 text-slate-500">
+                 <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-bold text-slate-700 flex items-center gap-2">
+                        {t('containerDetails')}: 
+                        <span className="font-mono bg-slate-100 px-2 py-1 rounded text-sm">{selectedContainer.containerNo}</span>
+                    </h4>
+                    <button 
+                        onClick={handlePrint}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                    >
+                        <Printer size={16} />
+                        {t('printReport')}
+                    </button>
+                 </div>
+                 
+                 <table className="w-full text-sm border-collapse border border-slate-200">
+                    <thead className="text-left bg-slate-50 text-slate-700">
+                      {/* Order: Destination Tag, Pallets, Cartons, Location Arrangement, Note */}
                       <tr>
-                        <th className="p-2 font-medium">{t('colDest')}</th>
-                        <th className="p-2 font-medium">{t('locationArrangement')}</th>
-                        <th className="p-2 font-medium text-right">{t('palletCount')}</th>
-                        <th className="p-2 font-medium text-right">{t('colCartons')}</th>
+                        <th className="p-2 font-bold border border-slate-200">{t('colDest')}</th>
+                        <th className="p-2 font-bold text-center border border-slate-200">{t('palletCount')}</th>
+                        <th className="p-2 font-bold text-center border border-slate-200">{t('colCartons')}</th>
+                        <th className="p-2 font-bold border border-slate-200">{t('locationArrangement')}</th>
+                        <th className="p-2 font-bold border border-slate-200">{t('colNote')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {selectedContainer.entries.map((entry, index) => (
                         <tr key={index}>
-                          <td className="p-2">{entry.dest}</td>
-                          <td className="p-2 text-xs text-slate-500">{getLocationArrangement(entry.dest)}</td>
-                          <td className="p-2 text-right font-medium">{entry.pallets}</td>
-                          <td className="p-2 text-right font-medium">{entry.cartons}</td>
+                          <td className="p-2 border border-slate-200">{entry.dest}</td>
+                          <td className="p-2 text-center font-medium border border-slate-200">{entry.pallets}</td>
+                          <td className="p-2 text-center font-medium border border-slate-200">{entry.cartons || 0}</td>
+                          <td className="p-2 text-xs text-slate-600 border border-slate-200">{getLocationArrangement(entry.dest)}</td>
+                          <td className="p-2 text-xs text-slate-500 border border-slate-200 max-w-[150px] truncate" title={getLocationNotes(entry.dest)}>{getLocationNotes(entry.dest)}</td>
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot className="bg-slate-50 font-bold text-slate-700 border-t border-slate-200">
+                      <tr>
+                        <td className="p-2 border border-slate-200">{t('total')}</td>
+                        <td className="p-2 text-center border border-slate-200">{totals.pallets}</td>
+                        <td className="p-2 text-center border border-slate-200">{totals.cartons}</td>
+                        <td className="p-2 border border-slate-200" colSpan={2}></td>
+                      </tr>
+                    </tfoot>
                  </table>
                </div>
              ) : (
@@ -179,12 +352,35 @@ const AppContent: React.FC = () => {
   const { addNotification } = useNotifications();
   const { t } = useLanguage();
 
-  // Flag to prevent infinite broadcast loops
-  const isRemoteUpdate = useRef(false);
+  // Granular flags to prevent infinite loops for each state slice
+  const isRemoteRulesUpdate = useRef(false);
+  const isRemoteLogsUpdate = useRef(false);
+  const isRemoteExceptionsUpdate = useRef(false);
+  const isRemoteDestContainerMapUpdate = useRef(false);
+  const isRemoteAccountsUpdate = useRef(false);
+  
+  // Debounce ref for sync
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Debounce ref for auto upload
+  const autoUploadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const syncChannel = useMemo(() => new BroadcastChannel('linkw_app_sync'), []);
 
+  // Initialize Data and Session
   useEffect(() => {
+    // 1. Restore Session (Auto Login)
+    const savedSession = localStorage.getItem(SESSION_KEY);
+    if (savedSession) {
+        try {
+            const { role } = JSON.parse(savedSession);
+            if (role) {
+                setUserRole(role);
+                console.log("Session restored for role:", role);
+            }
+        } catch(e) { console.error("Session restore failed", e); }
+    }
+
+    // 2. Load Local Data
     const savedRules = localStorage.getItem(STORAGE_KEY);
     if (savedRules) {
       try {
@@ -201,9 +397,29 @@ const AppContent: React.FC = () => {
       setRules(generateDefaultRules());
     }
     
+    // Accounts Load with Migration
     const savedAccounts = localStorage.getItem(ACCOUNTS_KEY);
     if (savedAccounts) {
-        try { setAccounts(JSON.parse(savedAccounts)); } catch(e) {}
+        try { 
+            const loaded = JSON.parse(savedAccounts);
+            // V14.2 Migration: Rename default roles
+            let changed = false;
+            if (loaded['operator']) {
+                loaded['入库组'] = loaded['operator'];
+                delete loaded['operator'];
+                changed = true;
+            }
+            if (loaded['staff']) {
+                loaded['出库组'] = loaded['staff'];
+                delete loaded['staff'];
+                changed = true;
+            }
+            
+            setAccounts(loaded); 
+            if (changed) {
+                 localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(loaded));
+            }
+        } catch(e) {}
     }
 
     const savedLogs = localStorage.getItem(LOG_KEY);
@@ -242,16 +458,34 @@ const AppContent: React.FC = () => {
 
   }, []);
 
+
+  // Handle Auto Download on Startup if configured
   useEffect(() => {
-    const handleSync = () => {
+      // If user is logged in, config is loaded, URL exists, and autoSync is enabled
+      if (userRole && cloudConfig.url && cloudConfig.autoSync) {
+          console.log("Auto-Sync enabled: Downloading latest data...");
+          // Slight delay to ensure UI is ready
+          setTimeout(() => {
+              handleCloudDownload(true).catch(e => console.error("Auto-download failed:", e));
+          }, 1000);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole, cloudConfig.url, cloudConfig.autoSync]);
+
+
+  useEffect(() => {
+    const performSync = () => {
          try {
-             // Mark this update as remote to prevent echoing it back
-             isRemoteUpdate.current = true;
+             // Mark all updates as remote to prevent echoing them back
+             isRemoteRulesUpdate.current = true;
+             isRemoteLogsUpdate.current = true;
+             isRemoteExceptionsUpdate.current = true;
+             isRemoteDestContainerMapUpdate.current = true;
+             isRemoteAccountsUpdate.current = true;
 
              const savedRules = localStorage.getItem(STORAGE_KEY);
              if (savedRules) {
                 const parsedRules = JSON.parse(savedRules) as LocationRule[];
-                // Ensure migration runs on sync as well
                 const migratedRules = parsedRules.map(rule => {
                     const defaultRule = buildDefaultRule(rule.range);
                     return { ...defaultRule, ...rule };
@@ -277,6 +511,14 @@ const AppContent: React.FC = () => {
          }
     };
 
+    const handleSync = () => {
+        // Debounce sync to prevent notification spam and rapid re-renders
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = setTimeout(() => {
+            performSync();
+        }, 300);
+    };
+
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === STORAGE_KEY || event.key === EXCEPTIONS_KEY || event.key === DEST_CONTAINER_KEY || event.key === LOG_KEY || event.key === ACCOUNTS_KEY) {
           handleSync();
@@ -293,6 +535,7 @@ const AppContent: React.FC = () => {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       syncChannel.close();
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     };
   }, [addNotification, t, syncChannel]);
 
@@ -300,11 +543,21 @@ const AppContent: React.FC = () => {
       syncChannel.postMessage('SYNC_UPDATE');
   };
 
+  const scheduleAutoUpload = () => {
+      if (!cloudConfig.autoSync || !cloudConfig.url) return;
+      
+      if (autoUploadTimeoutRef.current) clearTimeout(autoUploadTimeoutRef.current);
+      
+      // Debounce cloud uploads to avoid network spam on frequent edits
+      autoUploadTimeoutRef.current = setTimeout(() => {
+          console.log("Auto-Sync: Uploading changes to cloud...");
+          handleCloudUpload(true).catch(e => console.error("Auto-upload failed", e));
+      }, 5000); 
+  };
+
   useEffect(() => {
-    // Determine if this is a remote update
-    if (isRemoteUpdate.current) {
-        // Reset flag and do NOT broadcast or save again (since we just read it)
-        isRemoteUpdate.current = false;
+    if (isRemoteRulesUpdate.current) {
+        isRemoteRulesUpdate.current = false;
         return;
     }
 
@@ -312,41 +565,58 @@ const AppContent: React.FC = () => {
         if(rules.length > 0) {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
             broadcastUpdate();
+            scheduleAutoUpload();
         }
     }, 800);
     return () => clearTimeout(handler);
   }, [rules]);
   
   useEffect(() => {
-      if (isRemoteUpdate.current) return;
+      if (isRemoteAccountsUpdate.current) {
+          isRemoteAccountsUpdate.current = false;
+          return;
+      }
       localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
       broadcastUpdate();
+      scheduleAutoUpload();
   }, [accounts]);
 
   useEffect(() => {
-      if (isRemoteUpdate.current) return;
+      if (isRemoteLogsUpdate.current) {
+          isRemoteLogsUpdate.current = false;
+          return;
+      }
       localStorage.setItem(LOG_KEY, JSON.stringify(logs));
       broadcastUpdate();
+      scheduleAutoUpload();
   }, [logs]);
   
   useEffect(() => {
-      if (isRemoteUpdate.current) return;
+      if (isRemoteExceptionsUpdate.current) {
+          isRemoteExceptionsUpdate.current = false;
+          return;
+      }
       localStorage.setItem(EXCEPTIONS_KEY, JSON.stringify(exceptions));
       broadcastUpdate();
+      scheduleAutoUpload();
   }, [exceptions]);
 
   useEffect(() => {
-      if (isRemoteUpdate.current) return;
+      if (isRemoteDestContainerMapUpdate.current) {
+          isRemoteDestContainerMapUpdate.current = false;
+          return;
+      }
       const handler = setTimeout(() => {
         localStorage.setItem(DEST_CONTAINER_KEY, JSON.stringify(destContainerMap));
         broadcastUpdate();
+        scheduleAutoUpload();
     }, 800); 
     return () => clearTimeout(handler);
   }, [destContainerMap]);
 
 
-  const addLog = (text: string, location?: string) => {
-    const newLog: LogEntry = { time: new Date().toLocaleString(), text, location };
+  const addLog = (text: string, location?: string, containerNo?: string) => {
+    const newLog: LogEntry = { time: new Date().toLocaleString(), text, location, containerNo };
     setLogs(prev => [newLog, ...prev].slice(0, 300));
   };
 
@@ -357,7 +627,7 @@ const AppContent: React.FC = () => {
       time: new Date().toLocaleString(),
     };
     setExceptions(prev => [newException, ...prev]);
-    addLog(`Exception Recorded: ${entry.description}`);
+    addLog(`Exception Recorded: ${entry.description}`, undefined, entry.containerNo);
     addNotification(t('exceptionAdded'), 'error');
   };
 
@@ -417,7 +687,7 @@ const handleSaveCloudConfig = (config: CloudConfig) => {
     localStorage.setItem(CLOUD_CONFIG_KEY, JSON.stringify(config));
 };
 
-const handleCloudUpload = async () => {
+const handleCloudUpload = async (silent = false) => {
     const backup: FullBackup = {
         rules,
         logs,
@@ -428,41 +698,114 @@ const handleCloudUpload = async () => {
         timestamp: Date.now(),
         backupDate: new Date().toLocaleString()
     };
-    await uploadData(cloudConfig, backup);
-    const time = new Date().toLocaleString();
-    setLastSyncTime(time);
-    localStorage.setItem(LAST_SYNC_KEY, time);
+    try {
+        await uploadData(cloudConfig, backup);
+        const time = new Date().toLocaleString();
+        setLastSyncTime(time);
+        localStorage.setItem(LAST_SYNC_KEY, time);
+        if (!silent) addNotification("Data uploaded to cloud successfully.", 'success');
+    } catch (e: any) {
+        if (!silent) addNotification(`Upload failed: ${e.message}`, 'error');
+        throw e;
+    }
 };
 
-const handleCloudDownload = async () => {
-    const data = await downloadData(cloudConfig);
-    if (data.rules) setRules(data.rules);
-    if (data.logs) setLogs(data.logs);
-    if (data.exceptions) setExceptions(data.exceptions);
-    if (data.destContainerMap) setDestContainerMap(data.destContainerMap);
-    if (data.accounts) setAccounts(data.accounts);
-    
-    // Trigger sync for other tabs
-    setTimeout(() => broadcastUpdate(), 500);
+const handleCloudDownload = async (silent = false) => {
+    try {
+        const data = await downloadData(cloudConfig);
+        
+        // 1. Persist data to localStorage immediately
+        if (data.rules) localStorage.setItem(STORAGE_KEY, JSON.stringify(data.rules));
+        if (data.logs) localStorage.setItem(LOG_KEY, JSON.stringify(data.logs));
+        if (data.exceptions) localStorage.setItem(EXCEPTIONS_KEY, JSON.stringify(data.exceptions));
+        if (data.destContainerMap) localStorage.setItem(DEST_CONTAINER_KEY, JSON.stringify(data.destContainerMap));
+        if (data.accounts) localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(data.accounts));
 
-    const time = new Date().toLocaleString();
-    setLastSyncTime(time);
-    localStorage.setItem(LAST_SYNC_KEY, time);
+        // 2. Mark as remote updates to avoid auto-uploading what we just downloaded
+        isRemoteRulesUpdate.current = true;
+        isRemoteLogsUpdate.current = true;
+        isRemoteExceptionsUpdate.current = true;
+        isRemoteDestContainerMapUpdate.current = true;
+        isRemoteAccountsUpdate.current = true;
+
+        // 3. Update React State
+        if (data.rules) setRules(data.rules);
+        if (data.logs) setLogs(data.logs);
+        if (data.exceptions) setExceptions(data.exceptions);
+        if (data.destContainerMap) setDestContainerMap(data.destContainerMap);
+        if (data.accounts) setAccounts(data.accounts);
+        
+        // 4. Trigger sync for other tabs
+        setTimeout(() => broadcastUpdate(), 500);
+
+        const time = new Date().toLocaleString();
+        setLastSyncTime(time);
+        localStorage.setItem(LAST_SYNC_KEY, time);
+        if (!silent) addNotification("Data downloaded from cloud.", 'success');
+    } catch (e: any) {
+        if (!silent) addNotification(`Download failed: ${e.message}`, 'error');
+        throw e;
+    }
+};
+
+const handleDeleteContainer = (containerNo: string) => {
+    // 1. Dest Container Map - Use deep copy for reliable state updates
+    setDestContainerMap(prev => {
+        const newMap: DestContainerMap = {};
+        let changed = false;
+        
+        Object.keys(prev).forEach(dest => {
+            const containers = prev[dest];
+            if (containers[containerNo]) {
+                changed = true;
+                // Create shallow copy of the container list for this destination
+                // Excluding the one to be deleted
+                const { [containerNo]: removed, ...rest } = containers;
+                
+                // Only keep the destination if it still has containers
+                if (Object.keys(rest).length > 0) {
+                    newMap[dest] = rest;
+                }
+            } else {
+                // Keep the original reference if not modified
+                newMap[dest] = containers;
+            }
+        });
+        
+        return changed ? newMap : prev;
+    });
+
+    // 2. Logs
+    setLogs(prev => prev.filter(l => l.containerNo !== containerNo));
+
+    // 3. Exceptions
+    setExceptions(prev => prev.filter(e => e.containerNo !== containerNo));
+
+    addLog(`Deleted all data for container: ${containerNo}`);
+    addNotification(t('containerDeleted'), 'success');
+};
+
+const handleLogin = (role: UserRole) => {
+    setUserRole(role);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ role, timestamp: Date.now() }));
+    addLog(`User logged in: ${role}`);
+};
+
+const handleLogout = () => {
+    setUserRole(null);
+    localStorage.removeItem(SESSION_KEY);
 };
 
 
   if (!userRole) {
-    return <Login onLogin={(role) => {
-        setUserRole(role);
-        addLog(`User logged in: ${role}`);
-    }} accounts={accounts} />;
+    return <Login onLogin={handleLogin} accounts={accounts} />;
   }
 
   return (
     <Router>
       <Layout 
         userRole={userRole} 
-        onLogout={() => setUserRole(null)} 
+        onLogout={handleLogout} 
         onQueryContainerHistory={() => setIsHistoryModalOpen(true)}
         onOpenCloudSync={() => setIsCloudSyncOpen(true)}
       >
@@ -477,14 +820,20 @@ const handleCloudDownload = async () => {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </Layout>
-      <ContainerHistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} destContainerMap={destContainerMap} rules={rules} />
+      <ContainerHistoryModal 
+        isOpen={isHistoryModalOpen} 
+        onClose={() => setIsHistoryModalOpen(false)} 
+        destContainerMap={destContainerMap} 
+        rules={rules} 
+        onDeleteContainer={handleDeleteContainer}
+      />
       <CloudSyncModal 
         isOpen={isCloudSyncOpen} 
         onClose={() => setIsCloudSyncOpen(false)} 
         config={cloudConfig}
         onSaveConfig={handleSaveCloudConfig}
-        onUpload={handleCloudUpload}
-        onDownload={handleCloudDownload}
+        onUpload={() => handleCloudUpload(false)}
+        onDownload={() => handleCloudDownload(false)}
         lastSyncTime={lastSyncTime}
       />
     </Router>

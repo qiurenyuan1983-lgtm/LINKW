@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { CloudConfig, FullBackup } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { checkServerHealth } from '../services/cloudService';
-import { X, Cloud, Upload, Download, Settings, Save, AlertCircle, CheckCircle, Activity, Wifi, Database } from 'lucide-react';
+import { X, Cloud, Upload, Download, Settings, Save, AlertCircle, CheckCircle, Activity, Wifi, Database, RefreshCw } from 'lucide-react';
 
 interface Props {
     isOpen: boolean;
@@ -18,6 +19,7 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
     const { t } = useLanguage();
     const [url, setUrl] = useState('');
     const [apiKey, setApiKey] = useState('');
+    const [autoSync, setAutoSync] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [status, setStatus] = useState<{type: 'idle' | 'loading' | 'success' | 'error', message: string}>({ type: 'idle', message: '' });
     
@@ -30,6 +32,7 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
         if (isOpen) {
             setUrl(config.url || '');
             setApiKey(config.apiKey || '');
+            setAutoSync(config.autoSync || false);
             setShowSettings(!config.url); // Show settings if no URL configured
             setStatus({ type: 'idle', message: '' });
             setTestStatus('idle');
@@ -43,7 +46,11 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
             setStatus({ type: 'error', message: t('urlRequired') || 'URL is required' });
             return;
         }
-        onSaveConfig({ url: url.trim(), apiKey: apiKey.trim() });
+        onSaveConfig({ 
+            url: url.trim(), 
+            apiKey: apiKey.trim(),
+            autoSync: autoSync
+        });
         setShowSettings(false);
         setStatus({ type: 'success', message: t('settingsSaved') || 'Settings saved' });
         setTimeout(() => setStatus({ type: 'idle', message: '' }), 2000);
@@ -204,6 +211,25 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
                                     placeholder="Optional (Bearer Token)" 
                                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none" 
                                 />
+                            </div>
+                            
+                            {/* Auto Sync Toggle */}
+                            <div className="flex items-center gap-2 py-2">
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        className="sr-only peer" 
+                                        checked={autoSync}
+                                        onChange={e => setAutoSync(e.target.checked)}
+                                    />
+                                    <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-medium text-slate-700 flex items-center gap-1">
+                                        <RefreshCw size={10} /> Auto-Sync Data
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">Automatically upload changes and download on startup.</span>
+                                </div>
                             </div>
 
                             {/* Test Status Feedback */}

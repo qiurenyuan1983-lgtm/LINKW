@@ -10,7 +10,7 @@ const translations = {
     appTitle: "LinkW Warehouse System",
     appSubtitle: "Dashboard · Reporting · Import/Export · Role Management",
     dashboard: "Dashboard",
-    rulesOps: "Rules & Ops",
+    rulesOps: "Location Arrangement",
     wmsSystem: "WMS System",
     biSystem: "BI Reports",
     signOut: "Sign Out",
@@ -69,7 +69,13 @@ const translations = {
     // Rules Toolbar
     searchPlaceholder: "Search locations...",
     inventory: "Inventory",
+    uploadData: "Upload Data",
+    importInventory: "Import Inventory Data", // NEW
+    downloadData: "Download Data",
     unload: "Unload",
+    uploadFile: "Upload File",
+    batchUpload: "Batch Upload",
+    batchImportSuccess: "Successfully processed {count} files, assigned {locations} locations.",
     plan: "Plan",
     exportPlan: "Export Results",
     exportPlanTooltip: "The exported table is consistent with the imported table in structure, format, and data content.",
@@ -94,6 +100,7 @@ const translations = {
     colActions: "Actions",
     statusOk: "OK",
     statusOverflow: "OVERFLOW",
+    total: "Total",
     
     // Pagination
     prevPage: "Previous",
@@ -164,6 +171,7 @@ const translations = {
     exceptionAdded: "New exception recorded.",
     uiRefreshed: "UI refreshed with the latest data.",
     locationArrangement: "Location Arrangement",
+    printReport: "Print Report",
 
     // Add Rule
     range: "Location",
@@ -182,6 +190,9 @@ const translations = {
     containerDetails: "Container Details",
     noContainerFound: "No containers found.",
     noContainerSelected: "Select a container to see details.",
+    delete: "Delete",
+    confirmDeleteContainer: "Delete all data for container {container}? This cannot be undone.",
+    containerDeleted: "Container data deleted.",
 
     // Exceptions
     containerNo: "Container No.",
@@ -192,6 +203,10 @@ const translations = {
     addException: "Add Exception",
     record: "Record",
     time: "Time",
+    uploadPhoto: "Upload Photo",
+    photos: "Photos",
+    viewPhoto: "View Photo",
+    colPhotos: "Photos",
     
     // AI Assistant
     assistantTitle: "AI Assistant",
@@ -233,7 +248,7 @@ const translations = {
     appTitle: "盈仓科技 · 库位系统",
     appSubtitle: "看板 · 报表 · 导入导出 · 权限管理",
     dashboard: "库位看板",
-    rulesOps: "规则与操作",
+    rulesOps: "库位安排",
     wmsSystem: "WMS 系统",
     biSystem: "BI 报表",
     signOut: "退出登录",
@@ -291,8 +306,14 @@ const translations = {
 
     // Rules Toolbar
     searchPlaceholder: "搜索库位、备注...",
-    inventory: "盘点单",
+    inventory: "盘点表",
+    uploadData: "上传数据",
+    importInventory: "导入库存数据", // NEW
+    downloadData: "下载数据",
     unload: "拆柜单",
+    uploadFile: "上传文件",
+    batchUpload: "批量上传",
+    batchImportSuccess: "成功处理 {count} 个文件，分配 {locations} 个库位。",
     plan: "排位表",
     exportPlan: "导出拆柜单结果",
     exportPlanTooltip: "导出的表格在结构、格式和数据内容上，与导入的表格保持一致",
@@ -317,6 +338,7 @@ const translations = {
     colActions: "操作",
     statusOk: "正常",
     statusOverflow: "超标",
+    total: "总计",
     
     // Pagination
     prevPage: "上一页",
@@ -324,9 +346,9 @@ const translations = {
     pageInfo: "第 {current} / {total} 页 (共 {items} 条)",
 
     // Location Types (V14)
-    'amz-main-A': "亚马逊主区 (A)",
-    'amz-main-BC': "亚马逊主区 (B/C)",
-    'amz-buffer': "亚马逊偏仓 (D/E/G)",
+    'amz-main-A': "Amazon Main (A)",
+    'amz-main-BC': "Amazon Main (B/C)",
+    'amz-buffer': "Amazon Buffer (D/E/G)",
     sehin: "希音专区 (A)",
     private: "私人地址 (V/G)",
     platform: "平台 (F/H)",
@@ -387,6 +409,7 @@ const translations = {
     exceptionAdded: "已记录新的异常。",
     uiRefreshed: "界面已刷新，显示最新数据。",
     locationArrangement: "库位安排",
+    printReport: "打印报表",
 
     // Add Rule
     range: "库位",
@@ -405,6 +428,9 @@ const translations = {
     containerDetails: "柜号详情",
     noContainerFound: "未找到相关柜号。",
     noContainerSelected: "请选择一个柜号查看详情。",
+    delete: "删除",
+    confirmDeleteContainer: "确定删除柜号 {container} 的所有数据吗？此操作无法撤销。",
+    containerDeleted: "柜号数据已删除。",
     
     // Exceptions
     containerNo: "柜号",
@@ -415,6 +441,10 @@ const translations = {
     addException: "新增异常",
     record: "记录异常",
     time: "时间",
+    uploadPhoto: "上传照片",
+    photos: "照片",
+    viewPhoto: "查看照片",
+    colPhotos: "照片留底",
 
     // AI Assistant
     assistantTitle: "AI 助手",

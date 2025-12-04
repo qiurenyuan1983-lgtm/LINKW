@@ -18,6 +18,7 @@ export interface LogEntry {
   time: string;
   text: string;
   location?: string; // For location-specific history
+  containerNo?: string;
 }
 
 export interface ColumnConfig {
@@ -40,6 +41,8 @@ export interface UnloadPlanRow {
   cartons?: number;
   weight?: number;
   volume?: number;
+  // V14.3: Support split assignments
+  assignments?: { location: string; pallets: number; cartons: number }[];
 }
 
 export interface UnloadPlan {
@@ -55,6 +58,7 @@ export interface UnloadPlan {
 export interface OutboundRow {
     dest: string;
     pallets: number;
+    cartons?: number;
     location?: string;
     containerNo?: string;
 }
@@ -66,6 +70,7 @@ export interface ExceptionEntry {
   containerNo?: string;
   pcNo?: string;
   description: string;
+  photos?: string[]; // Base64 encoded images
 }
 
 // FIX: Add ChatMessage type for GeminiAssistant component
@@ -88,6 +93,7 @@ export type Accounts = Record<string, { password: string; role: UserRole }>;
 export interface CloudConfig {
     url: string;
     apiKey: string;
+    autoSync?: boolean; // New field for auto-sync preference
 }
 
 export interface FullBackup {

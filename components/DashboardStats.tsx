@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { LocationRule } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
@@ -16,11 +17,13 @@ const DashboardStats: React.FC<Props> = ({ rules }) => {
 
   const typeMap: Record<string, { count: number; cur: number; max: number }> = {};
   const destPalletMap: Record<string, number> = {};
+  const destCartonMap: Record<string, number> = {};
   const zoneMap: Record<string, { count: number; cur: number; max: number }> = {};
 
   rules.forEach(r => {
     const maxP = r.maxPallet ?? 0;
     const curP = r.curPallet ?? 0;
+    const curC = r.curCartons ?? 0;
     totalMax += maxP;
     totalCur += curP;
 
@@ -36,12 +39,13 @@ const DashboardStats: React.FC<Props> = ({ rules }) => {
     typeMap[tVal].max += maxP;
 
     // Dest Pallet Stats
-    if (curP > 0) {
+    if (curP > 0 || curC > 0) {
       const tags = ((r.destinations || "").split(/[，,]/).map(t => t.trim()).filter(Boolean));
       // FIX: Explicitly type `uniqueTags` as `string[]` to ensure `tag` is inferred as a string.
       const uniqueTags: string[] = Array.from(new Set(tags));
       for (const tag of uniqueTags) {
         destPalletMap[tag] = (destPalletMap[tag] || 0) + curP;
+        destCartonMap[tag] = (destCartonMap[tag] || 0) + curC;
       }
     }
 
@@ -87,7 +91,11 @@ const DashboardStats: React.FC<Props> = ({ rules }) => {
   const destData = Object.entries(destPalletMap)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 20)
-    .map(([name, value]) => ({ name, value }));
+    .map(([name, value]) => ({ 
+        name, 
+        value,
+        cartons: destCartonMap[name] || 0
+    }));
 
   const typeData = Object.entries(typeMap).map(([name, data]) => ({
       name,
@@ -253,13 +261,15 @@ const DashboardStats: React.FC<Props> = ({ rules }) => {
                      <tr className="border-b text-left text-slate-500">
                        <th className="py-1">{t('dest')}</th>
                        <th className="py-1 text-right">{t('palletCount')}</th>
+                       <th className="py-1 text-right">{t('colCartons')}</th>
                      </tr>
                    </thead>
                    <tbody>
                       {destData.map((d, i) => (
                         <tr key={i} className="border-b border-slate-50">
-                          <td className="py-1 truncate max-w-[100px]" title={d.name}>{d.name}</td>
+                          <td className="py-1 truncate max-w-[80px]" title={d.name}>{d.name}</td>
                           <td className="py-1 text-right font-medium">{d.value}</td>
+                          <td className="py-1 text-right text-slate-500">{d.cartons}</td>
                         </tr>
                       ))}
                    </tbody>

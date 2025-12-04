@@ -1,9 +1,10 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LocationRule, UserRole, ColumnConfig, LOCATION_TYPES, DESTINATION_OPTIONS, UnloadPlan, UnloadPlanRow, DestContainerMap, LogEntry, ContainerStats } from '../types';
 import * as XLSX from 'xlsx';
 import { parseUnloadSheet, assignLocationsForUnload, parseOutboundSheet, parseContainerMapSheet, parseInventorySheet, generateUnloadPlanSheet } from '../services/excelService';
-import { Search, Plus, Download, Upload, Settings, X, Trash2, FileText, ArrowUp, ArrowDown, ArrowUpDown, History, Hand, ScanLine, CheckSquare, Square } from 'lucide-react';
+import { Search, Plus, Download, Upload, Settings, X, Trash2, FileText, ArrowUp, ArrowDown, ArrowUpDown, History, Hand, ScanLine, CheckSquare, Square, ChevronDown, Files, Container } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import BarcodeScanner from '../components/BarcodeScanner';
 
@@ -37,7 +38,7 @@ interface Props {
   rules: LocationRule[];
   setRules: (rules: LocationRule[]) => void;
   userRole: UserRole;
-  addLog: (text: string, location?: string) => void;
+  addLog: (text: string, location?: string, containerNo?: string) => void;
   logs: LogEntry[];
   destContainerMap: DestContainerMap;
   setDestContainerMap: React.Dispatch<React.SetStateAction<DestContainerMap>>;
@@ -135,7 +136,7 @@ const DestinationSelectorModal: React.FC<DestSelectorProps> = ({ isOpen, onClose
                 </div>
 
                 <div className="p-4 border-t bg-slate-50 rounded-b-xl flex justify-between items-center">
-                    <span className={`text-sm font-medium ${allowedCount && selected.length > allowedCount ? 'text-red-600' : 'text-slate-600'}`}>
+                    <span className="text-sm font-medium text-slate-600">
                         {t('current')}: {selected.length} {allowedCount ? `/ ${allowedCount}` : ''}
                     </span>
                     <div className="flex gap-2">
@@ -215,6 +216,28 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
 
   // Store the last unload plan for re-export
   const [lastUnloadPlan, setLastUnloadPlan] = useState<UnloadPlan | null>(null);
+
+  // Inventory Menu State
+  const [showInventoryMenu, setShowInventoryMenu] = useState(false);
+  const inventoryMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Unload Menu State
+  const [showUnloadMenu, setShowUnloadMenu] = useState(false);
+  const unloadMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (inventoryMenuRef.current && !inventoryMenuRef.current.contains(event.target as Node)) {
+            setShowInventoryMenu(false);
+        }
+        if (unloadMenuRef.current && !unloadMenuRef.current.contains(event.target as Node)) {
+            setShowUnloadMenu(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   
   const prevRulesRef = useRef<LocationRule[]>([]);
 
@@ -422,25 +445,36 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
       const newRules = rules.map(r => ({ ...r }));
       
       assigned.forEach(row => {
-          if (row.location) {
-              const rIdx = newRules.findIndex(r => r.range === row.location);
-              if (rIdx >= 0) {
-                  // Only update rules if we actually assigned something new
-                  newRules[rIdx].curPallet = (newRules[rIdx].curPallet || 0) + row.pallets;
-                  
-                  if (row.cartons) {
-                      newRules[rIdx].curCartons = (newRules[rIdx].curCartons || 0) + row.cartons;
-                  }
+          // Check for detailed assignments (splits) or fallback to simple location
+          const splits = row.assignments || (row.location ? [{ location: row.location, pallets: row.pallets, cartons: row.cartons || 0 }] : []);
+          
+          splits.forEach(split => {
+              if (split.location) {
+                  // Handle multiple locations separated by comma (merged import)
+                  const locations = split.location.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                  const count = locations.length;
+                  const palletsPerLoc = Math.ceil(split.pallets / count);
+                  const cartonsPerLoc = split.cartons ? Math.ceil(split.cartons / count) : 0;
 
-                  const tags = (newRules[rIdx].destinations || "").split(/[，,]/).map(t => t.trim()).filter(Boolean);
-                  if (row.dest && !tags.includes(row.dest)) {
-                      tags.push(row.dest);
-                      newRules[rIdx].destinations = tags.join('，');
-                      newRules[rIdx].currentDest = tags.length;
-                  }
-                  addLog(`Assigned ${row.pallets} pallets for ${row.dest} to ${row.location}`, row.location);
+                  locations.forEach(locName => {
+                      const rIdx = newRules.findIndex(r => r.range === locName);
+                      if (rIdx >= 0) {
+                          newRules[rIdx].curPallet = (newRules[rIdx].curPallet || 0) + palletsPerLoc;
+                          if (cartonsPerLoc > 0) {
+                              newRules[rIdx].curCartons = (newRules[rIdx].curCartons || 0) + cartonsPerLoc;
+                          }
+
+                          const tags = (newRules[rIdx].destinations || "").split(/[，,]/).map(t => t.trim()).filter(Boolean);
+                          if (row.dest && !tags.includes(row.dest)) {
+                              tags.push(row.dest);
+                              newRules[rIdx].destinations = tags.join('，');
+                              newRules[rIdx].currentDest = tags.length;
+                          }
+                          addLog(`Assigned ~${palletsPerLoc} pallets for ${row.dest} to ${locName}`, locName, row.containerNo);
+                      }
+                  });
               }
-          }
+          });
       });
       setRules(newRules);
       return assigned;
@@ -474,11 +508,22 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
 
             const assignedRows = applyUnloadLogic([...parsed.rows]);
             
+            // Calculate carton sum per destination for logging/verification
+            const destSummary = assignedRows.reduce((acc, row) => {
+                if (!acc[row.dest]) acc[row.dest] = 0;
+                acc[row.dest] += (row.cartons || 0);
+                return acc;
+            }, {} as Record<string, number>);
+
+            const summaryStr = Object.entries(destSummary)
+                .map(([dest, count]) => `${dest}: ${count} ctns`)
+                .join(', ');
+
             // Store the plan with workbook for exact export
             setLastUnloadPlan({ ...parsed, rows: assignedRows, workbook: wb, sheetName });
 
-            addLog(`Imported Unload Plan: ${parsed.rows.length} rows.`);
-            addNotification(`${t('importSuccess')} ${assignedRows.filter(r => !!r.location).length} locations assigned.`, 'success');
+            addLog(`Imported Unload Plan: ${parsed.rows.length} rows (aggregated). Carton Summary: ${summaryStr}`);
+            addNotification(`${t('importSuccess')} ${assignedRows.filter(r => !!r.location).length} location groups assigned.`, 'success');
 
         } else {
             addNotification("Failed to parse unload sheet. Check header format.", 'error');
@@ -486,8 +531,123 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
     };
     reader.readAsArrayBuffer(file);
     e.target.value = '';
+    setShowUnloadMenu(false);
   };
   
+  const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
+      return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+          reader.onerror = (e) => reject(e);
+          reader.readAsArrayBuffer(file);
+      });
+  };
+
+  const handleBatchUnloadImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+
+      let currentRules = [...rules];
+      let currentMap = { ...destContainerMap };
+      let totalAssigned = 0;
+      let fileCount = 0;
+
+      // Process files sequentially to maintain state consistency
+      for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          try {
+              const buffer = await readFileAsArrayBuffer(file);
+              const wb = XLSX.read(buffer, { type: 'array', cellStyles: true });
+              const worksheet = wb.Sheets[wb.SheetNames[0]];
+              const parsed = parseUnloadSheet(worksheet);
+
+              if (parsed) {
+                  // Check duplicate in currentMap
+                  if (parsed.containerNo) {
+                      const isDuplicate = Object.values(currentMap).some(destMap => 
+                          Object.prototype.hasOwnProperty.call(destMap, parsed.containerNo)
+                      );
+                      
+                      if (isDuplicate) {
+                          addLog(`Skipped duplicate container in batch: ${parsed.containerNo}`);
+                          continue; 
+                      }
+                  }
+                  
+                  // Assign locations using the current state simulation
+                  const assigned = assignLocationsForUnload(parsed.rows, currentRules, false);
+                  
+                  // Update currentMap
+                  assigned.forEach(row => {
+                      if (row.dest && row.containerNo) {
+                          if (!currentMap[row.dest]) currentMap[row.dest] = {};
+                          const existing = currentMap[row.dest][row.containerNo];
+                          let currentPallets = 0;
+                          let currentCartons = 0;
+                          if (existing) {
+                              if (typeof existing === 'number') {
+                                  currentPallets = existing;
+                              } else {
+                                  currentPallets = existing.pallets;
+                                  currentCartons = existing.cartons;
+                              }
+                          }
+                          currentMap[row.dest][row.containerNo] = {
+                              pallets: currentPallets + row.pallets,
+                              cartons: currentCartons + (row.cartons || 0)
+                          };
+                      }
+                  });
+
+                  // Update currentRules using detailed assignments
+                  assigned.forEach(row => {
+                      const splits = row.assignments || (row.location ? [{ location: row.location, pallets: row.pallets, cartons: row.cartons || 0 }] : []);
+                      
+                      splits.forEach(split => {
+                          if (split.location) {
+                              const locations = split.location.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+                              const count = locations.length;
+                              const palletsPerLoc = Math.ceil(split.pallets / count);
+                              const cartonsPerLoc = split.cartons ? Math.ceil(split.cartons / count) : 0;
+                              
+                              locations.forEach(locName => {
+                                const rIdx = currentRules.findIndex(r => r.range === locName);
+                                if (rIdx >= 0) {
+                                    currentRules[rIdx] = { ...currentRules[rIdx] };
+                                    currentRules[rIdx].curPallet = (currentRules[rIdx].curPallet || 0) + palletsPerLoc;
+                                    if (cartonsPerLoc > 0) {
+                                        currentRules[rIdx].curCartons = (currentRules[rIdx].curCartons || 0) + cartonsPerLoc;
+                                    }
+                                    const tags = (currentRules[rIdx].destinations || "").split(/[，,]/).map(t => t.trim()).filter(Boolean);
+                                    if (row.dest && !tags.includes(row.dest)) {
+                                        tags.push(row.dest);
+                                        currentRules[rIdx].destinations = tags.join('，');
+                                        currentRules[rIdx].currentDest = tags.length;
+                                    }
+                                }
+                              });
+                          }
+                      });
+                  });
+                  
+                  totalAssigned += assigned.filter(r => !!r.location).length;
+                  fileCount++;
+              }
+          } catch (err) {
+              console.error(`Error processing file ${file.name}`, err);
+              addLog(`Error processing file ${file.name}`);
+          }
+      }
+      
+      setRules(currentRules);
+      setDestContainerMap(currentMap);
+      setLastUnloadPlan(null); // Clear last plan as batch doesn't support single export
+      addLog(`Batch Import: Processed ${fileCount} files.`);
+      addNotification(t('batchImportSuccess', { count: fileCount, locations: totalAssigned }), 'success');
+      e.target.value = '';
+      setShowUnloadMenu(false);
+  };
+
   const handleExportPlan = () => {
     if (!lastUnloadPlan || !lastUnloadPlan.workbook) {
         return addNotification("No unload plan available to export.", "error");
@@ -538,58 +698,188 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
     reader.onload = (ev) => {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, {type: 'array'});
-        const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1}) as any[][];
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const aoa = XLSX.utils.sheet_to_json(sheet, {header: 1}) as any[][];
+        
         const rows = parseOutboundSheet(aoa);
         
         if(rows) {
             const newRules = [...rules];
+            // Deep clone map to avoid direct mutation before set state
+            const newDestMap = JSON.parse(JSON.stringify(destContainerMap)); 
+            
             let deducted = 0;
-            let notFound = 0;
+            let skipped = 0;
 
             rows.forEach(row => {
-                let remaining = row.pallets;
-                if (row.location) {
-                    const idx = newRules.findIndex(r => r.range === row.location);
-                    if (idx !== -1) {
-                        const take = Math.min(newRules[idx].curPallet || 0, remaining);
-                        newRules[idx].curPallet = (newRules[idx].curPallet || 0) - take;
-                        if(newRules[idx].curPallet === 0) {
-                            newRules[idx].destinations = "";
-                            newRules[idx].curCartons = 0;
-                        }
-                        remaining -= take;
-                        deducted += take;
-                        addLog(`Deducted ${take} pallets from specified location ${row.location}`, row.location);
-                    } else {
-                        notFound++;
+                // 1. Validate mandatory fields
+                if (!row.location || !row.dest || !row.pallets) {
+                    skipped++;
+                    return;
+                }
+
+                // 2. Find Location Rule
+                // User requirement: 库位=库位Area
+                const rule = newRules.find(r => r.range.toUpperCase() === row.location!.trim().toUpperCase());
+                if (!rule) {
+                    skipped++;
+                    console.warn(`Skipped: Location ${row.location} not found`);
+                    return;
+                }
+
+                // 3. Match Destination (Strict)
+                // User requirement: 库位/目的地标签相同才能操作 (Strict matching)
+                const currentTags = (rule.destinations || "").split(/[，,]/).map(t => t.trim()).filter(Boolean);
+                
+                // Helper to normalize destination strings (e.g. handle Amazon- prefix)
+                const normalizeDest = (s: string) => s.trim().toLowerCase().replace(/^(amazon|amz)[\s-]?/i, '');
+
+                // Check for match using normalized strings
+                const matchedTag = currentTags.find(tag => normalizeDest(tag) === normalizeDest(row.dest!));
+                
+                if (!matchedTag) {
+                    skipped++;
+                    console.warn(`Skipped: Destination ${row.dest} not found in location ${row.location} tags [${rule.destinations}]`);
+                    return;
+                }
+
+                // 4. Perform Deduction on Rule
+                // User requirement: 当前托盘=实际打板数Pallets, 箱数=件数ctns
+                const qtyToDeduct = row.pallets;
+                const cartonsToDeduct = row.cartons; 
+
+                const currentPallets = rule.curPallet || 0;
+                const currentCartons = rule.curCartons || 0;
+
+                // Cannot deduct more than what's there
+                const actualDeductPallets = Math.min(currentPallets, qtyToDeduct);
+                
+                // Calculate actual carton deduction
+                let actualDeductCartons = 0;
+                if (cartonsToDeduct !== undefined) {
+                    actualDeductCartons = cartonsToDeduct; 
+                    actualDeductCartons = Math.min(currentCartons, actualDeductCartons);
+                } else {
+                    // Proportional deduction if not provided in outbound
+                    if (currentPallets > 0) {
+                        actualDeductCartons = Math.ceil((actualDeductPallets / currentPallets) * currentCartons);
                     }
                 }
 
-                while (remaining > 0) {
-                     const candidates = newRules.map((r, i) => ({r, i}))
-                        .filter(x => (x.r.destinations || "").includes(row.dest))
-                        .sort((a, b) => (b.r.curPallet || 0) - (a.r.curPallet || 0));
-                     
-                     if (candidates.length === 0) { notFound++; break; }
-                     
-                     const target = candidates[0];
-                     const take = Math.min(target.r.curPallet || 0, remaining);
-                     if (take <= 0) { notFound++; break; }
-                     
-                     newRules[target.i].curPallet = (newRules[target.i].curPallet || 0) - take;
-                     if(newRules[target.i].curPallet === 0) {
-                         newRules[target.i].destinations = "";
-                         newRules[target.i].curCartons = 0;
-                     } 
-                     remaining -= take;
-                     deducted += take;
-                     addLog(`Deducted ${take} pallets for ${row.dest} from ${target.r.range}`, target.r.range);
+                rule.curPallet = Math.max(0, currentPallets - actualDeductPallets);
+                rule.curCartons = Math.max(0, currentCartons - actualDeductCartons);
+
+                // Update deduction counter
+                deducted += actualDeductPallets;
+
+                // 4b. Tag Cleanup Logic
+                // User: "当前托盘为0时删除对应的目的地标签" (When current pallet is 0 delete corresponding destination tag)
+                if (rule.curPallet === 0) {
+                    // Use matchedTag from the normalized search to filter it out
+                    const newTags = currentTags.filter(t => t !== matchedTag);
+                    
+                    rule.destinations = newTags.join('，');
+                    rule.currentDest = newTags.length;
+                    
+                    // If no tags left, ensure full clean (though curPallet is already 0)
+                    if (newTags.length === 0) {
+                        rule.destinations = "";
+                        rule.currentDest = 0;
+                        rule.curCartons = 0; // Ensure cartons 0 if empty
+                    }
+                }
+
+                // 5. Update Container Map
+                // User requirement: 目的地标签(映射柜号数据=柜号Container)
+                // "包括删除目的地标签对应柜号的数据" -> Update the container data corresponding to the destination tag
+                
+                // Use normalized dest as lookup key
+                const destMapKey = Object.keys(newDestMap).find(k => normalizeDest(k) === normalizeDest(row.dest!));
+                
+                if (destMapKey && newDestMap[destMapKey]) {
+                    const containerMap = newDestMap[destMapKey];
+                    
+                    if (row.containerNo) {
+                        const targetContainer = row.containerNo.trim();
+                        // Find container key case-insensitive
+                        const cKey = Object.keys(containerMap).find(k => k.toLowerCase() === targetContainer.toLowerCase());
+                        
+                        if (cKey && containerMap[cKey]) {
+                            const stats = containerMap[cKey];
+                            let cPallets = typeof stats === 'number' ? stats : stats.pallets;
+                            let cCartons = typeof stats === 'number' ? 0 : stats.cartons;
+
+                            // Deduct
+                            cPallets = Math.max(0, cPallets - actualDeductPallets);
+                            cCartons = Math.max(0, cCartons - actualDeductCartons);
+
+                            if (cPallets === 0) {
+                                delete containerMap[cKey];
+                            } else {
+                                if (typeof stats === 'number') containerMap[cKey] = cPallets;
+                                else {
+                                    stats.pallets = cPallets;
+                                    stats.cartons = cCartons;
+                                }
+                            }
+                        }
+                    } else {
+                        // FIFO deduction if no container specified in outbound
+                        let remainingToDeduct = actualDeductPallets;
+                        let remainingCartonsToDeduct = actualDeductCartons;
+
+                        for (const cKey of Object.keys(containerMap)) {
+                            if (remainingToDeduct <= 0 && remainingCartonsToDeduct <= 0) break;
+
+                            const stats = containerMap[cKey];
+                            let cPallets = typeof stats === 'number' ? stats : stats.pallets;
+                            let cCartons = typeof stats === 'number' ? 0 : stats.cartons;
+
+                            const pDrop = Math.min(cPallets, remainingToDeduct);
+                            
+                            // Distribute carton drop
+                            let cDrop = 0;
+                            if (cartonsToDeduct !== undefined) {
+                                // If exact cartons known, we just drop until remainingCartonsToDeduct is 0
+                                cDrop = Math.min(cCartons, remainingCartonsToDeduct);
+                            } else {
+                                // Proportional drop
+                                if (cPallets > 0) cDrop = Math.ceil((pDrop / cPallets) * cCartons);
+                            }
+                            
+                            cPallets -= pDrop;
+                            cCartons -= cDrop;
+
+                            remainingToDeduct -= pDrop;
+                            remainingCartonsToDeduct -= cDrop;
+
+                            if (cPallets <= 0) {
+                                delete containerMap[cKey];
+                            } else {
+                                if (typeof stats === 'number') containerMap[cKey] = cPallets;
+                                else {
+                                    stats.pallets = cPallets;
+                                    stats.cartons = cCartons;
+                                }
+                            }
+                        }
+                    }
+
+                    // Clean up Dest Map if empty
+                    if (Object.keys(containerMap).length === 0) {
+                        delete newDestMap[destMapKey];
+                    }
                 }
             });
+
             setRules(newRules);
-            const msg = `${t('deductedPallets')} (${deducted}). ${notFound > 0 ? `${notFound} rows had issues.` : ''}`;
-            addLog(`Imported Outbound: Deducted ${deducted} pallets. ${notFound > 0 ? `${notFound} rows not fully processed.` : ''}`);
-            addNotification(msg, notFound > 0 ? 'info' : 'success');
+            setDestContainerMap(newDestMap);
+            
+            let msg = `${t('deductedPallets')} (${deducted}).`;
+            if (skipped > 0) msg += ` Skipped ${skipped} rows (mismatch/invalid).`;
+            
+            addLog(`Outbound Import: Deducted ${deducted} pallets. Skipped ${skipped}.`);
+            addNotification(msg, skipped > 0 ? 'info' : 'success');
         }
     };
     reader.readAsArrayBuffer(file);
@@ -617,6 +907,10 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
                      if (item.max !== undefined) {
                          newRules[idx].maxPallet = item.max;
                      }
+                     if (item.dest !== undefined) {
+                        newRules[idx].destinations = item.dest;
+                        newRules[idx].currentDest = item.dest.split(/[，,]/).filter(Boolean).length;
+                     }
                      updated++;
                  }
               });
@@ -628,6 +922,24 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
       reader.readAsArrayBuffer(file);
       e.target.value = '';
   }
+
+  const handleInventoryExport = () => {
+    const exportData = rules.map(r => ({
+        'Location/库位': r.range,
+        'Destination Tag/目的地标签': r.destinations,
+        'Current Pallet/当前托盘': r.curPallet || 0
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    // Adjust column widths
+    ws['!cols'] = [{ wch: 15 }, { wch: 30 }, { wch: 15 }];
+    
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+    XLSX.writeFile(wb, `Inventory_${new Date().toISOString().slice(0,10)}.xlsx`);
+    addLog("Exported Inventory Data");
+    setShowInventoryMenu(false);
+  };
 
   const exportXLSX = () => {
      const ws = XLSX.utils.json_to_sheet(rules);
@@ -735,21 +1047,71 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
         />
 
         {/* Toolbar */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center z-10 flex-none">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center z-30 relative flex-none">
             <div className="flex gap-2 w-full xl:w-auto">
                 <div className="relative flex-1 xl:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input type="text" placeholder={t('searchPlaceholder')} className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500" value={keyword} onChange={e => setKeyword(e.target.value)} />
                 </div>
                 <button onClick={() => setIsScannerOpen(true)} className="p-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600" title="Scan Barcode/QR Code"><ScanLine size={20} /></button>
-                <button onClick={() => setShowColSettings(!showColSettings)} className="p-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600" title={t('columnSettings')}><Settings size={20} /></button>
+                <button onClick={() => setShowColSettings(!showColSettings)} className="p-2 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-600" title="Column Settings"><Settings size={20} /></button>
             </div>
 
             <div className="flex flex-wrap gap-2 items-center">
                 <button onClick={() => setShowManualUnload(true)} className="flex items-center gap-2 px-3 py-2 bg-fuchsia-50 text-fuchsia-700 rounded-lg hover:bg-fuchsia-100 border border-fuchsia-200 text-sm font-medium transition-colors"><Hand size={16} /> {t('manualUnload')}</button>
                 <button onClick={exportXLSX} className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 border border-emerald-200 text-sm font-medium transition-colors"><Download size={16} /> {t('rules')}</button>
                 
-                <label className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 text-sm font-medium cursor-pointer transition-colors"><Upload size={16} /> {t('unload')}<input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleUnloadImport} /></label>
+                {/* Inventory Button with Dropdown */}
+                <div className="relative" ref={inventoryMenuRef}>
+                    <button 
+                        onClick={() => setShowInventoryMenu(!showInventoryMenu)} 
+                        className={`flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 border border-purple-200 text-sm font-medium transition-colors ${showInventoryMenu ? 'ring-2 ring-purple-300' : ''}`}
+                    >
+                        <FileText size={16} /> {t('inventory')} <ChevronDown size={14} className={`transition-transform ${showInventoryMenu ? 'rotate-180' : ''}`} />
+                    </button>
+                    
+                    {showInventoryMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-fade-in-up">
+                            <label className="flex items-center gap-3 px-4 py-3 hover:bg-purple-50 hover:text-purple-700 cursor-pointer text-slate-600 text-sm border-b border-slate-100 transition-colors">
+                                <Upload size={16} />
+                                <span>{t('importInventory')}</span>
+                                <input type="file" className="hidden" accept=".xlsx,.xls" onChange={(e) => { handleInventoryImport(e); setShowInventoryMenu(false); }} />
+                            </label>
+                            <button
+                                onClick={handleInventoryExport}
+                                className="flex items-center gap-3 px-4 py-3 hover:bg-purple-50 hover:text-purple-700 cursor-pointer text-slate-600 text-sm w-full text-left transition-colors"
+                            >
+                                <Download size={16} />
+                                <span>{t('downloadData')}</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Unload Button with Dropdown */}
+                <div className="relative" ref={unloadMenuRef}>
+                     <button 
+                        onClick={() => setShowUnloadMenu(!showUnloadMenu)} 
+                        className={`flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 text-sm font-medium transition-colors ${showUnloadMenu ? 'ring-2 ring-blue-300' : ''}`}
+                    >
+                        <Upload size={16} /> {t('unload')} <ChevronDown size={14} className={`transition-transform ${showUnloadMenu ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showUnloadMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden animate-fade-in-up">
+                            <label className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 hover:text-blue-700 cursor-pointer text-slate-600 text-sm border-b border-slate-100 transition-colors">
+                                <FileText size={16} />
+                                <span>{t('uploadFile')}</span>
+                                <input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleUnloadImport} />
+                            </label>
+                            <label className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 hover:text-blue-700 cursor-pointer text-slate-600 text-sm border-b border-slate-100 transition-colors">
+                                <Files size={16} />
+                                <span>{t('batchUpload')}</span>
+                                <input type="file" className="hidden" accept=".xlsx,.xls" multiple onChange={handleBatchUnloadImport} />
+                            </label>
+                        </div>
+                    )}
+                </div>
 
                 {/* Export Results button placed next to Import Unload */}
                 {lastUnloadPlan && (
@@ -763,7 +1125,6 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
                 )}
 
                 <label className="flex items-center gap-2 px-3 py-2 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 border border-orange-200 text-sm font-medium cursor-pointer transition-colors"><Upload size={16} /> {t('outbound')}<input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleOutboundImport} /></label>
-                <label className="flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 border border-purple-200 text-sm font-medium cursor-pointer transition-colors"><FileText size={16} /> {t('inventory')}<input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleInventoryImport} /></label>
             </div>
         </div>
 
@@ -824,7 +1185,13 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
                                         
                                         {/* Content Card */}
                                         <div className="text-sm text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 hover:bg-white hover:shadow-md transition-all">
-                                            {log.text}
+                                            <div className="mb-1">{log.text}</div>
+                                            {log.containerNo && (
+                                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-xs font-mono">
+                                                    <Container size={10} />
+                                                    {log.containerNo}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -928,11 +1295,19 @@ const Rules: React.FC<Props> = ({ rules, setRules, userRole, addLog, logs, destC
                                                 {(rule.destinations || "").split(/[，,]/).map(t => t.trim()).filter(Boolean).map((tag, i) => (
                                                     <span 
                                                         key={i} 
-                                                        onClick={(e) => { e.stopPropagation(); canEdit('destinations') && handleDeleteTag(realIndex, tag); }}
-                                                        className={`px-2 py-0.5 rounded-full text-xs border font-medium cursor-pointer hover:shadow-sm transition-all ${getDestTagClass(tag)}`}
+                                                        className={`px-2 py-0.5 rounded-full text-xs border font-medium flex items-center gap-1 ${getDestTagClass(tag)}`}
                                                         title={getDestTooltip(tag)}
+                                                        onClick={(e) => e.stopPropagation()}
                                                     >
                                                         {tag}
+                                                        {canEdit('destinations') && (
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteTag(realIndex, tag); }}
+                                                                className="hover:bg-black/10 rounded-full p-0.5 transition-colors"
+                                                            >
+                                                                <X size={10} />
+                                                            </button>
+                                                        )}
                                                     </span>
                                                 ))}
                                                 {canEdit('destinations') && (
