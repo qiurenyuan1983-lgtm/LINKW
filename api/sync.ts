@@ -35,12 +35,17 @@ export default async function handler(request: Request) {
     // Health Check / Database Connection Test
     if (action === 'health') {
         try {
+            // Check if KV environment variables are present (basic check)
+            if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+                 throw new Error("Missing KV Environment Variables");
+            }
+
             // Verify KV connection by writing and reading a timestamp
             const timestamp = Date.now();
             await kv.set('health_check', timestamp);
             const val = await kv.get('health_check');
             
-            if (val === timestamp) {
+            if (Number(val) === timestamp) {
                 return new Response(JSON.stringify({ 
                     status: 'ok', 
                     database: 'connected', 

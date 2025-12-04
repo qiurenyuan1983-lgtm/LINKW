@@ -21,8 +21,10 @@ export async function checkServerHealth(config: CloudConfig): Promise<{status: s
         clearTimeout(timeoutId);
         
         const data = await response.json();
-        // Return data even if response is not OK, so we can see the error details from the server
-        if (!response.ok && !data.message) {
+        
+        // Return data even if response is not OK, so we can see the error details (hints) from the server
+        // The backend specifically returns 503 for DB errors with a JSON body
+        if (!response.ok && !data.status) {
              throw new Error(`Server error (${response.status})`);
         }
         return data;

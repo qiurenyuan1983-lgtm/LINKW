@@ -67,8 +67,8 @@ const CloudSyncModal: React.FC<Props> = ({ isOpen, onClose, config, onSaveConfig
                 setTestMsg('Success: Backend & Database Connected');
             } else if (result.status === 'error' && result.database === 'disconnected') {
                 setTestStatus('error');
-                setTestMsg('Backend OK, but Database disconnected');
-                setDbHint(result.hint || 'Configure Vercel KV in your project storage settings.');
+                setTestMsg('Backend Connected, Database Failed');
+                setDbHint(result.hint || 'Please configure Vercel KV in your project settings.');
             } else {
                 setTestStatus('error');
                 setTestMsg(`Error: ${result.message || 'Unknown server error'}`);
