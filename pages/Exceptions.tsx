@@ -1,11 +1,8 @@
 
-
-
-
 import React, { useState } from 'react';
 import { ExceptionEntry } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
-import { AlertTriangle, Plus, Search, Camera, X, Image as ImageIcon } from 'lucide-react';
+import { AlertTriangle, Plus, Search, Camera, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 interface Props {
   exceptions: ExceptionEntry[];
@@ -21,6 +18,7 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
   const [photos, setPhotos] = useState<string[]>([]);
   const [keyword, setKeyword] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -30,11 +28,12 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
         img.onload = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
-          const maxWidth = 800;
+          const maxWidth = 800; // Constrain max dimension to 800px
           const maxHeight = 800;
           let width = img.width;
           let height = img.height;
 
+          // Calculate new dimensions
           if (width > height) {
             if (width > maxWidth) {
               height *= maxWidth / width;
@@ -46,14 +45,21 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
               height = maxHeight;
             }
           }
+          
           canvas.width = width;
           canvas.height = height;
-          if(ctx){
+          
+          if (ctx) {
+              // Fill with white background to handle transparency (e.g. PNGs)
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, width, height);
+              
               ctx.drawImage(img, 0, 0, width, height);
-              // Compress to JPEG at 0.6 quality
+              
+              // Compress to JPEG at 0.6 quality for storage efficiency
               resolve(canvas.toDataURL('image/jpeg', 0.6));
           } else {
-              resolve(e.target?.result as string); // Fallback
+              resolve(e.target?.result as string); // Fallback to original
           }
         };
         img.src = e.target?.result as string;
@@ -63,14 +69,21 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
   };
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
+    if (e.target.files && e.target.files.length > 0) {
+      setIsProcessing(true);
       const files = Array.from(e.target.files) as File[];
       const newPhotos: string[] = [];
-      for (const file of files) {
-          const compressed = await compressImage(file);
-          newPhotos.push(compressed);
+      try {
+        for (const file of files) {
+            const compressed = await compressImage(file);
+            newPhotos.push(compressed);
+        }
+        setPhotos(prev => [...prev, ...newPhotos]);
+      } catch (error) {
+        console.error("Compression error:", error);
+      } finally {
+        setIsProcessing(false);
       }
-      setPhotos(prev => [...prev, ...newPhotos]);
     }
     e.target.value = ''; // Reset input to allow re-selection of same file
   };
@@ -135,12 +148,14 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
                           onChange={e => setContainerNo(e.target.value)}
                           placeholder={t('containerNo')}
                           className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                          disabled={isProcessing}
                       />
                       <input 
                           value={pcNo}
                           onChange={e => setPcNo(e.target.value)}
                           placeholder={t('pcNo')}
                           className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                          disabled={isProcessing}
                       />
                   </div>
                   <textarea
@@ -149,6 +164,7 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
                       placeholder={t('description')}
                       required
                       className="w-full h-24 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      disabled={isProcessing}
                   ></textarea>
 
                   {/* Photo Upload Area */}
@@ -159,21 +175,21 @@ const Exceptions: React.FC<Props> = ({ exceptions, onAddException }) => {
                              <div key={i} className="relative w-20 h-20 border rounded-lg overflow-hidden group">
                                <img src={p} className="w-full h-full object-cover" alt={`Upload ${i}`} />
                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                   <button type="button" onClick={() => removePhoto(i)} className="bg-red-500 text-white p-1 rounded-full"><X size={14} /></button>
+                                   <button type="button" onClick={() => removePhoto(i)} className="bg-red-500 text-white p-1 rounded-full" disabled={isProcessing}><X size={14} /></button>
                                </div>
                              </div>
                           ))}
-                          <label className="w-20 h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all">
-                             <Camera size={24} />
-                             <span className="text-[10px] mt-1">{t('uploadPhoto')}</span>
-                             <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoSelect} />
+                          <label className={`w-20 h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                             {isProcessing ? <Loader2 size={24} className="animate-spin" /> : <Camera size={24} />}
+                             <span className="text-[10px] mt-1">{isProcessing ? 'Processing...' : t('uploadPhoto')}</span>
+                             <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoSelect} disabled={isProcessing} />
                           </label>
                       </div>
                   </div>
 
                   <div className="flex justify-end gap-2 pt-2">
-                      <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">{t('cancel')}</button>
-                      <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2">
+                      <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg" disabled={isProcessing}>{t('cancel')}</button>
+                      <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled={isProcessing}>
                           <AlertTriangle size={16} /> {t('record')}
                       </button>
                   </div>

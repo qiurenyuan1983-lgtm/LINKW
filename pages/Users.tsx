@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Accounts, UserRole } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -43,7 +44,7 @@ const Users: React.FC<Props> = ({ accounts, onAddUser, onDeleteUser }) => {
     }
   };
 
-  const availableRoles: UserRole[] = ['operator', 'staff'];
+  const availableRoles: UserRole[] = ['operator', 'staff', 'stock_adj', 'bulk_cargo'];
 
   return (
     <div className="space-y-6">
@@ -85,7 +86,7 @@ const Users: React.FC<Props> = ({ accounts, onAddUser, onDeleteUser }) => {
                 className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
               >
                 {availableRoles.map(r => (
-                  r && <option key={r} value={r} className="capitalize">{r}</option>
+                  r && <option key={r} value={r} className="capitalize">{t(r as any)}</option>
                 ))}
               </select>
             </div>
@@ -109,7 +110,7 @@ const Users: React.FC<Props> = ({ accounts, onAddUser, onDeleteUser }) => {
                                 <UserCircle size={24} className="text-slate-400" />
                                 <div>
                                     <p className="font-medium text-slate-800">{name}</p>
-                                    <p className="text-xs text-slate-500 capitalize">{account.role}</p>
+                                    <p className="text-xs text-slate-500 capitalize">{t(account.role as any)}</p>
                                 </div>
                             </div>
                             {name !== 'Mike' && (
@@ -151,7 +152,7 @@ const Users: React.FC<Props> = ({ accounts, onAddUser, onDeleteUser }) => {
                 return (
                   <tr key={name} className="hover:bg-slate-50">
                     <td className="px-4 py-2 font-medium">{name}</td>
-                    <td className="px-4 py-2 capitalize">{account.role}</td>
+                    <td className="px-4 py-2 capitalize">{t(account.role as any)}</td>
                     <td className="px-4 py-2">
                        <div className="flex items-center gap-2">
                            <span className="font-mono text-slate-600">

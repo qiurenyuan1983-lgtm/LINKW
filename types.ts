@@ -1,6 +1,13 @@
 
+export type UserRole = 'Mike' | 'operator' | 'staff' | 'stock_adj' | 'bulk_cargo' | null;
 
-export type UserRole = 'Mike' | 'operator' | 'staff' | null;
+export interface Task {
+  id: string;
+  content: string;
+  completed: boolean;
+  createdAt: number;
+  priority?: 'high' | 'medium' | 'low';
+}
 
 export interface LocationRule {
   range: string;
@@ -12,6 +19,18 @@ export interface LocationRule {
   maxPallet: number | null;
   curPallet: number | null;
   curCartons: number | null;
+  tasks?: Task[];
+  containers?: Record<string, number>; // ContainerNo -> Pallets in this location
+}
+
+export interface MoveSuggestion {
+  id: string;
+  source: string;
+  target: string;
+  dest: string;
+  quantity: number;
+  reason: string;
+  priority: 'high' | 'medium' | 'low';
 }
 
 export interface LogEntry {
@@ -49,10 +68,11 @@ export interface UnloadPlan {
   headers: string[];
   rows: UnloadPlanRow[];
   headerRowIndex: number;
-  worksheet: any; // Keep original worksheet for formatting
+  worksheet: any; // Keep original worksheet for formatting consistency
   workbook: any; // Keep original workbook for exact export
   sheetName: string; 
   containerNo: string;
+  fileName?: string;
 }
 
 export interface OutboundRow {
@@ -106,6 +126,60 @@ export interface FullBackup {
     timestamp: number;
     backupDate?: string; // Human readable
 }
+
+// --- COST CONTROL MODULE TYPES ---
+
+export type VendorRating = 'A' | 'B' | 'C' | 'D';
+
+export interface Vendor {
+    id: string;
+    name: string;
+    type: 'supplies' | 'equipment' | 'maintenance' | 'service';
+    contactName: string;
+    contactPhone: string;
+    rating: VendorRating;
+    ratingReason?: string; // Why did they get this rating?
+    status: 'active' | 'blacklisted';
+}
+
+export interface Asset {
+    id: string;
+    name: string;
+    model: string;
+    category: 'forklift' | 'packaging' | 'it' | 'automation' | 'furniture';
+    location: string; // e.g., "Zone A"
+    owner: string; // Person responsible
+    purchaseDate: string;
+    value: number; // Original value
+    status: 'active' | 'maintenance' | 'retired';
+    maintenanceCount: number; // For alert logic
+}
+
+export interface MaintenanceRecord {
+    id: string;
+    assetId: string;
+    assetName: string;
+    type: 'repair' | 'maintenance';
+    description: string;
+    cost: number;
+    date: string;
+    vendorId: string;
+    isResolved: boolean;
+}
+
+export interface ProcurementRequest {
+    id: string;
+    itemName: string;
+    category: 'consumable' | 'device' | 'part';
+    quantity: number;
+    estimatedCost: number;
+    reason: string;
+    requester: string;
+    status: 'pending' | 'approved' | 'rejected' | 'ordered';
+    date: string;
+}
+
+// ---------------------------------
 
 
 // V14 Location Types

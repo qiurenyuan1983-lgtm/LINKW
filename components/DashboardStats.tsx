@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { LocationRule } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
@@ -235,7 +234,7 @@ const DashboardStats: React.FC<Props> = ({ rules }) => {
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
            <h3 className="text-base font-semibold text-slate-800 mb-4">{t('topDestinations')}</h3>
            <div className="flex flex-col sm:flex-row gap-6">
-              <div className="w-full sm:w-1/2 relative min-h-[250px]" style={{ width: '100%', height: 260 }}>
+              <div className="w-full sm:w-1/2" style={{ height: 260, minWidth: 0 }}>
                 <ResponsiveContainer width="100%" height="100%" debounce={50}>
                   <PieChart>
                     <Pie 

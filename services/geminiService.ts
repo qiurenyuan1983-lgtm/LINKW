@@ -1,85 +1,294 @@
-import { GoogleGenAI } from "@google/genai";
-import { LocationRule } from '../types';
 
-let ai: GoogleGenAI | null = null;
+import { GoogleGenAI, Type, FunctionDeclaration, Tool, SchemaType } from "@google/genai";
+import { LocationRule, ExceptionEntry, LogEntry } from '../types';
 
-const getAI = () => {
-  if (!ai) {
-    // Safely check for API key to prevent runtime errors in environments where 'process' is not defined.
-    const apiKey = (typeof process !== 'undefined' && process.env && process.env.API_KEY) ? process.env.API_KEY : undefined;
+// Tool Definitions
 
-    if (!apiKey) {
-      // The alert remains as a fallback for users in environments where the key isn't set.
-      // This won't be shown if the key is correctly injected.
-      alert("Gemini API key is not configured. The AI assistant is disabled.");
-      return null;
-    }
-    ai = new GoogleGenAI({ apiKey: apiKey });
-  }
-  return ai;
+// 1. Overview Tool
+const getWarehouseOverviewTool: FunctionDeclaration = {
+  name: 'get_warehouse_overview',
+  description: 'Get high-level statistics about the warehouse, including utilization and total capacity.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+  },
 };
 
-export async function runChatQuery(prompt: string, rulesContext: LocationRule[]): Promise<string> {
-  const genAI = getAI();
-  if (!genAI) {
-    return "AI service is not available. Please configure the API key.";
+// 2. Find Locations Tool
+const findLocationsTool: FunctionDeclaration = {
+  name: 'find_locations',
+  description: 'Find warehouse locations based on status (empty/partial/full) or specific destination tags.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      status: {
+        type: Type.STRING,
+        description: 'Filter by status: "empty", "partial", "full".',
+      },
+      destination: {
+        type: Type.STRING,
+        description: 'Filter by destination tag (e.g., "XLX7", "Shein").',
+      },
+      limit: {
+        type: Type.NUMBER,
+        description: 'Maximum number of results to return (default 10).',
+      }
+    },
+  },
+};
+
+// 3. Location Details Tool
+const getLocationDetailsTool: FunctionDeclaration = {
+  name: 'get_location_details',
+  description: 'Get detailed information about a specific location code (e.g., "A01").',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      locationCode: {
+        type: Type.STRING,
+        description: 'The location code to look up.',
+      }
+    },
+    required: ['locationCode'],
+  },
+};
+
+// 4. Report Exception Tool (NEW)
+const reportExceptionTool: FunctionDeclaration = {
+  name: 'report_exception',
+  description: 'Record a warehouse anomaly or exception (e.g., damaged cargo, missing label).',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      containerNo: { type: Type.STRING, description: 'Container number (optional).' },
+      pcNo: { type: Type.STRING, description: 'PC/Shipment number (optional).' },
+      description: { type: Type.STRING, description: 'Detailed description of the issue.' },
+    },
+    required: ['description'],
+  },
+};
+
+const warehouseTools: Tool[] = [
+    { functionDeclarations: [getWarehouseOverviewTool, findLocationsTool, getLocationDetailsTool, reportExceptionTool] }
+];
+
+const SYSTEM_INSTRUCTION = `You are "Mike", an expert warehouse management assistant for the LinkW system (盈仓科技).
+Your capabilities include:
+1. **Inventory Management**: Checking stock, finding empty slots, and analyzing capacity.
+2. **File Processing**: The user may upload CSV, TXT, or Excel (as CSV) files containing Unload Plans or Outbound Orders. You must parse this text data to answer questions about incoming/outgoing stock.
+3. **Image Recognition**: The user may upload photos of shelves, cargo, or labels. You must analyze these for:
+   - Reading blurred labels.
+   - Identifying damaged goods.
+   - Checking stacking compliance (e.g., "Is this unsafe?").
+4. **Exception Handling**: If a user reports damage or an issue, use the 'report_exception' tool to log it in the system immediately.
+
+GUIDELINES:
+- **Language**: Detect the user's language. If Chinese, reply in Chinese. If English, reply in English.
+- **Data First**: Use tools to fetch real-time data. Do not guess.
+- **Safety**: If analyzing an image of cargo, prioritize safety checks (leaning stacks, crushed boxes).
+- **Conciseness**: Be fast and professional. Use Markdown for lists.
+`;
+
+export interface AssistantActions {
+    addException: (entry: Omit<ExceptionEntry, 'id' | 'time'>) => void;
+}
+
+export class WarehouseAssistant {
+  private ai: GoogleGenAI;
+  private chat: any;
+  private rules: LocationRule[] = [];
+  private logs: LogEntry[] = [];
+  private actions: AssistantActions | null = null;
+
+  constructor() {
+    const apiKey = process.env.API_KEY;
+    this.ai = new GoogleGenAI({ apiKey: apiKey || '' });
+    
+    this.chat = this.ai.chats.create({
+      model: 'gemini-2.5-flash',
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        tools: warehouseTools,
+        temperature: 0.2,
+      },
+    });
   }
 
-  // Create a summarized context to keep the prompt efficient
-  const summary = {
-    totalLocations: rulesContext.length,
-    locationsWithStock: rulesContext.filter(r => (r.curPallet || 0) > 0).length,
-    totalPallets: rulesContext.reduce((acc, r) => acc + (r.curPallet || 0), 0),
-    totalCapacity: rulesContext.reduce((acc, r) => acc + (r.maxPallet || 0), 0),
-  };
+  public updateContext(rules: LocationRule[], logs: LogEntry[], actions: AssistantActions) {
+    this.rules = rules;
+    this.logs = logs;
+    this.actions = actions;
+  }
 
-  const utilization = summary.totalCapacity > 0 ? Math.round((summary.totalPallets / summary.totalCapacity) * 100) : 0;
+  public async analyzeLabelImage(base64Data: string): Promise<{ destination?: string, containerNo?: string, cartons?: number }> {
+      try {
+          const response = await this.ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: {
+                  parts: [
+                      { text: "Identify the Destination code (e.g., CLT2, XLX7, GYR3), Container Number (4 letters + 7 digits), and Item/Carton Count from this shipping label." },
+                      { inlineData: { mimeType: 'image/jpeg', data: base64Data } }
+                  ]
+              },
+              config: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                      type: Type.OBJECT,
+                      properties: {
+                          destination: { type: Type.STRING, description: "The destination code (e.g., CLT2, XLX7, GYR3). Usually 3-4 uppercase letters followed by a number. Often boxed." },
+                          containerNo: { type: Type.STRING, description: "The container number (e.g., OOLU1234567). Standard format is 4 letters + 7 digits." },
+                          cartons: { type: Type.NUMBER, description: "The quantity or piece count (e.g., QTY: 32). Extract the number." }
+                      }
+                  }
+              }
+          });
 
-  const systemInstruction = `You are a helpful and witty warehouse management assistant named "Linky".
-- Your purpose is to help users understand the warehouse status and find locations for pallets.
-- Answer questions based ONLY on the provided warehouse data context.
-- Be concise and clear. Format lists or tables as markdown for readability.
-- If you perform a calculation, explain it briefly.
-- If you cannot answer from the provided data, say so politely.
-- The current date is ${new Date().toLocaleDateString()}.
-- When asked to find a location, you must use the provided 'bestLocationSuggestion' if available. This is the optimal choice calculated by the system.
-- Your personality is professional but friendly.`;
+          const text = response.text;
+          if (!text) return {};
+          
+          return JSON.parse(text);
+      } catch (e) {
+          console.error("Label analysis failed", e);
+          return {};
+      }
+  }
 
-  // Filter rules to only those with stock to reduce prompt size, but also include some empty ones for context.
-  const relevantRules = rulesContext.filter(r => (r.curPallet || 0) > 0);
-  const emptyRules = rulesContext.filter(r => (r.curPallet || 0) === 0).slice(0, 20); // Add a sample of empty locations
-  const contextForLLM = [...relevantRules, ...emptyRules].map(({ range, type, destinations, maxPallet, curPallet, note }) => ({
-    range, type, destinations, maxPallet, curPallet, note
-  }));
+  public async sendMessage(message: string, fileData?: { mimeType: string, data: string }): Promise<string> {
+    if (!process.env.API_KEY) {
+        return "Error: Gemini API Key is missing.";
+    }
 
+    try {
+      let messageContent: any = message;
 
-  const fullPrompt = `CONTEXT:
-Warehouse Status Summary:
-- Overall Utilization: ${utilization}%
-- Total Locations: ${summary.totalLocations}
-- Locations with stock: ${summary.locationsWithStock}
-- Total Pallets: ${summary.totalPallets} / ${summary.totalCapacity}
+      if (fileData) {
+          // If it's a text-based file (CSV, TXT, JSON), append it as text context
+          if (fileData.mimeType.startsWith('text/') || fileData.mimeType === 'application/json' || fileData.mimeType === 'text/csv') {
+              const binaryString = atob(fileData.data);
+              // Handle potential unicode issues in simple b64 decode if necessary, 
+              // but for this snippet we assume standard text.
+              const decodedText = binaryString; // Simplified for this context
+              
+              messageContent = `${message}\n\n[Attached File Content]:\n${decodedText}`;
+          } else {
+              // Image or PDF
+              messageContent = [
+                  { text: message },
+                  { inlineData: { mimeType: fileData.mimeType, data: fileData.data } }
+              ];
+          }
+      }
 
-Detailed Location Data (sample):
-${JSON.stringify(contextForLLM, null, 2)}
+      let response = await this.chat.sendMessage({ message: messageContent });
+      
+      // Loop for tool calls
+      while (response.functionCalls && response.functionCalls.length > 0) {
+        const functionResponses = response.functionCalls.map((call: any) => {
+          const result = this.executeFunction(call.name, call.args);
+          return {
+            functionResponse: {
+                id: call.id,
+                name: call.name,
+                response: { result: result }
+            }
+          };
+        });
 
-USER QUERY: "${prompt}"
+        response = await this.chat.sendMessage({ message: functionResponses });
+      }
 
-Based on the context, please provide a helpful response.`;
+      return response.text || "I processed that, but I have nothing to say.";
+    } catch (error: any) {
+      console.error("Gemini Chat Error:", error);
+      return `Sorry, I encountered an error: ${error.message}`;
+    }
+  }
 
-  try {
-    const response = await genAI.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: fullPrompt,
-        config: {
-            systemInstruction: systemInstruction,
-            temperature: 0.2, // Lower temperature for more deterministic, factual answers
-        }
+  private executeFunction(name: string, args: any): any {
+    console.log(`Executing tool: ${name}`, args);
+    switch (name) {
+      case 'get_warehouse_overview':
+        return this.getOverview();
+      case 'find_locations':
+        return this.findLocations(args.status, args.destination, args.limit);
+      case 'get_location_details':
+        return this.getLocationDetails(args.locationCode);
+      case 'report_exception':
+        return this.reportException(args);
+      default:
+        return { error: `Function ${name} not found.` };
+    }
+  }
+
+  // --- Tool Implementations ---
+
+  private getOverview() {
+    const total = this.rules.length;
+    const used = this.rules.filter(r => (r.curPallet || 0) > 0).length;
+    const totalPallets = this.rules.reduce((acc, r) => acc + (r.curPallet || 0), 0);
+    const totalCapacity = this.rules.reduce((acc, r) => acc + (r.maxPallet || 0), 0);
+    const utilization = totalCapacity > 0 ? Math.round((totalPallets / totalCapacity) * 100) : 0;
+    
+    // Group by Zone
+    const zones: Record<string, number> = {};
+    this.rules.forEach(r => {
+        const z = r.range.charAt(0);
+        if (!zones[z]) zones[z] = 0;
+        zones[z] += (r.curPallet || 0);
     });
 
-    return response.text || "I'm sorry, I couldn't generate a response.";
-  } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    return "There was an error contacting the AI service. Please check the console for details.";
+    return {
+      totalLocations: total,
+      locationsWithStock: used,
+      totalPallets,
+      totalCapacity,
+      utilizationPercentage: utilization,
+      zoneBreakdown: zones,
+      recentLogs: this.logs.slice(0, 3) // Give a bit of recent context
+    };
+  }
+
+  private findLocations(status?: string, destination?: string, limit: number = 10) {
+    let matches = this.rules;
+
+    if (status) {
+      if (status === 'empty') matches = matches.filter(r => (r.curPallet || 0) === 0);
+      else if (status === 'full') matches = matches.filter(r => (r.curPallet || 0) >= (r.maxPallet || 0));
+      else if (status === 'partial') matches = matches.filter(r => (r.curPallet || 0) > 0 && (r.curPallet || 0) < (r.maxPallet || 0));
+    }
+
+    if (destination) {
+      const searchDest = destination.toLowerCase();
+      matches = matches.filter(r => r.destinations?.toLowerCase().includes(searchDest));
+    }
+
+    matches = matches.slice(0, limit);
+
+    return matches.map(r => ({
+      location: r.range,
+      pallets: r.curPallet || 0,
+      max: r.maxPallet || 0,
+      destinations: r.destinations,
+      type: r.type
+    }));
+  }
+
+  private getLocationDetails(code: string) {
+    const rule = this.rules.find(r => r.range.toUpperCase() === code.toUpperCase());
+    if (!rule) return { error: `Location ${code} not found.` };
+    return rule;
+  }
+
+  private reportException(args: any) {
+      if (this.actions) {
+          this.actions.addException({
+              containerNo: args.containerNo || 'Unknown',
+              pcNo: args.pcNo || '',
+              description: args.description,
+              photos: [] // AI-reported exceptions via text tool don't have photos yet
+          });
+          return { success: true, message: "Exception recorded in system." };
+      }
+      return { error: "System actions not initialized." };
   }
 }

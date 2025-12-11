@@ -16,8 +16,8 @@ const Login: React.FC<Props> = ({ onLogin, accounts }) => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const account = accounts[user];
-    if (account && account.password === pass) {
+    const account = accounts[user.trim()];
+    if (account && account.password === pass.trim()) {
       onLogin(account.role);
     } else {
       setError(t('invalidCredentials'));

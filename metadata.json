@@ -2,6 +2,7 @@
   "name": " LinkW Warehouse Management v14",
   "description": "V14 Warehouse management system with advanced zoning, container mapping, and automated slotting rules for LA warehouse.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "microphone"
   ]
 }
